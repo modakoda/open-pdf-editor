@@ -1,0 +1,118 @@
+/* ---- Icon buttons (toolbars) ---- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  flex: none;
+  transition: background-color 0.12s, color 0.12s;
+}
+.icon-btn.with-label {
+  padding: 0 9px 0 7px;
+}
+.icon-btn-label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.icon-btn:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.icon-btn:disabled {
+  color: var(--fg-subtle);
+  cursor: default;
+}
+.icon-btn:disabled svg {
+  opacity: 0.6;
+}
+
+/* ---- Popup menus ---- */
+.menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  animation: ope-menu-in 0.09s ease-out;
+}
+@keyframes ope-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+}
+.menu-item.danger {
+  color: var(--danger);
+}
+.menu-item.danger:hover:not(:disabled),
+.menu-item.danger:focus-visible {
+  background: var(--danger);
+  color: #fff;
+}
+.menu-item:disabled {
+  color: var(--fg-subtle);
+  cursor: default;
+}
+.menu-item.checked .menu-item-label {
+  font-weight: 600;
+}
+.menu-item-icon {
+  display: inline-flex;
+  width: 18px;
+  justify-content: center;
+  flex: none;
+}
+.menu-item-label {
+  flex: 1;
+}
+.menu-item-shortcut {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.menu-item:hover .menu-item-shortcut,
+.menu-item:focus-visible .menu-item-shortcut {
+  color: inherit;
+  opacity: 0.85;
+}
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}

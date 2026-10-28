@@ -1,0 +1,161 @@
+name: Release
+
+# Push a tag matching package.json's version (e.g. v0.1.0) to build installers on all three
+# operating systems and publish them to a GitHub Release.
+#
+# Optional signing secrets (used only when set):
+#   macOS:   CSC_LINK, CSC_KEY_PASSWORD (Developer ID Application .p12, base64 or URL)
+#            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (notarization)
+#   Windows: WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD (Authenticode .pfx); falls back to CSC_LINK /
+#            CSC_KEY_PASSWORD only if WIN_CSC_LINK is not set and the certificate is a .pfx.
+# Without them, macOS builds are ad-hoc signed and Windows builds are unsigned.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+    env:
+      electron_config_cache: ${{ github.workspace }}/.cache/electron
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+      FORCE_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check that the tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/electron
+            .cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Build
+        run: npm run build
+
+      - name: Package installers
+        env:
+          SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          SECRET_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          SECRET_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          args=(--publish never)
+          case "$RUNNER_OS" in
+            macOS)
+              if [ -n "$SECRET_CSC_LINK" ]; then
+                export CSC_LINK="$SECRET_CSC_LINK" CSC_KEY_PASSWORD="$SECRET_CSC_KEY_PASSWORD"
+                if [ -n "$SECRET_APPLE_ID" ] && [ -n "$SECRET_APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$SECRET_APPLE_TEAM_ID" ]; then
+                  export APPLE_ID="$SECRET_APPLE_ID" APPLE_APP_SPECIFIC_PASSWORD="$SECRET_APPLE_APP_SPECIFIC_PASSWORD" APPLE_TEAM_ID="$SECRET_APPLE_TEAM_ID"
+                  echo "Signing and notarizing the macOS build"
+                else
+                  echo "Signing the macOS build (no notarization credentials)"
+                fi
+              else
+                echo "No macOS certificate: ad-hoc signing"
+                export CSC_IDENTITY_AUTO_DISCOVERY=false
+                args+=(-c.mac.identity=-)
+              fi
+              ;;
+            Windows)
+              if [ -n "$SECRET_WIN_CSC_LINK" ]; then
+                export WIN_CSC_LINK="$SECRET_WIN_CSC_LINK" WIN_CSC_KEY_PASSWORD="$SECRET_WIN_CSC_KEY_PASSWORD"
+                echo "Signing the Windows build"
+              elif [ -n "$SECRET_CSC_LINK" ] && [[ "$SECRET_CSC_LINK" == *.pfx ]]; then
+                export CSC_LINK="$SECRET_CSC_LINK" CSC_KEY_PASSWORD="$SECRET_CSC_KEY_PASSWORD"
+                echo "Signing the Windows build"
+              else
+                echo "No Windows certificate: unsigned build"
+                export CSC_IDENTITY_AUTO_DISCOVERY=false
+              fi
+              ;;
+          esac
+          npx electron-builder "${args[@]}"
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            prerelease=()
+            if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$TAG" dist/* --title "Open PDF Editor ${TAG#v}" --generate-notes "${prerelease[@]}"
+          fi

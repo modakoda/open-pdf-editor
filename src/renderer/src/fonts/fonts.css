@@ -1,0 +1,71 @@
+/* Bundled Unicode fonts for the editing overlay. Must match UNICODE_CSS_FAMILIES in fonts.ts. */
+@font-face {
+  font-family: 'OPE Noto Sans';
+  src: url('../../../../resources/fonts/NotoSans-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Sans';
+  src: url('../../../../resources/fonts/NotoSans-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Sans';
+  src: url('../../../../resources/fonts/NotoSans-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Sans';
+  src: url('../../../../resources/fonts/NotoSans-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Serif';
+  src: url('../../../../resources/fonts/NotoSerif-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Serif';
+  src: url('../../../../resources/fonts/NotoSerif-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Serif';
+  src: url('../../../../resources/fonts/NotoSerif-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Serif';
+  src: url('../../../../resources/fonts/NotoSerif-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Sans Mono';
+  src: url('../../../../resources/fonts/NotoSansMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OPE Noto Sans Mono';
+  src: url('../../../../resources/fonts/NotoSansMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

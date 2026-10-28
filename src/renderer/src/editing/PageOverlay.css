@@ -1,0 +1,310 @@
+/* Editing overlay. Layers are laid out in unrotated page space (px = points × scale). */
+.ed-overlay {
+  position: absolute;
+  inset: 0;
+  /* No stacking context here: highlight layers blend (multiply) with the page canvas below. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ed-overlay[data-tool='hand'],
+.ed-overlay[data-tool='hand'] * {
+  pointer-events: none !important;
+}
+
+.ed-tool-text,
+.ed-tool-edit-text {
+  cursor: text;
+}
+.ed-tool-rect,
+.ed-tool-ellipse,
+.ed-tool-line,
+.ed-tool-arrow,
+.ed-tool-ink,
+.ed-tool-highlight,
+.ed-tool-whiteout {
+  cursor: crosshair;
+}
+.ed-tool-note,
+.ed-tool-image,
+.ed-tool-signature {
+  cursor: copy;
+}
+
+.ed-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* Object content is clipped to the page like in the saved PDF; selection handles and editors are not. */
+.ed-layer:not(.ed-layer-ui) {
+  overflow: hidden;
+}
+
+.ed-layer-multiply {
+  mix-blend-mode: multiply;
+}
+
+.ed-layer-preview {
+  opacity: 0.85;
+}
+
+.ed-object {
+  position: absolute;
+  pointer-events: auto;
+  transform-origin: center center;
+}
+
+.ed-tool-select .ed-object {
+  cursor: move;
+}
+.ed-tool-select .ed-object[data-object-type='text'] {
+  cursor: text;
+}
+.ed-tool-select .ed-object[data-object-type='note'] {
+  cursor: pointer;
+}
+
+.ed-object[data-ghost] {
+  pointer-events: none;
+}
+
+.ed-svg {
+  display: block;
+  overflow: visible;
+}
+
+.ed-fullpage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.ed-fullpage .ed-hit {
+  pointer-events: stroke;
+}
+.ed-fullpage[data-ghost] .ed-hit {
+  pointer-events: none;
+}
+
+.ed-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ed-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: #422006;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.ed-draft-box {
+  position: absolute;
+  border: 1px dashed var(--selection);
+  background: var(--accent-soft);
+}
+
+/* ---- selection ---- */
+.ed-frame {
+  position: absolute;
+  outline: 1px solid var(--selection);
+  outline-offset: 0;
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.ed-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  background: #ffffff;
+  border: 1.5px solid var(--selection);
+  border-radius: 2px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.ed-endpoint {
+  border-radius: 50%;
+  cursor: crosshair;
+}
+
+.ed-rotate {
+  left: 50%;
+  top: -24px;
+  border-radius: 50%;
+  cursor: grab;
+}
+.ed-rotate:active {
+  cursor: grabbing;
+}
+
+.ed-rotate-stem {
+  position: absolute;
+  left: 50%;
+  top: -20px;
+  width: 1px;
+  height: 20px;
+  background: var(--selection);
+  pointer-events: none;
+}
+
+/* ---- inline text editor ---- */
+.ed-text-editor {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: 1px dashed var(--selection);
+  outline-offset: 1px;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: var(--selection);
+}
+
+/* ---- edit existing text ---- */
+.ed-runs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ed-run {
+  position: absolute;
+  pointer-events: auto;
+  cursor: text;
+  border-radius: 1px;
+}
+.ed-run:hover {
+  outline: 1px solid var(--selection);
+  background: var(--accent-soft);
+}
+
+/* ---- form fields ---- */
+.ed-forms {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ed-forms[data-interactive='true'] .ed-field {
+  pointer-events: auto;
+}
+
+.ed-field {
+  position: absolute;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px solid rgba(37, 99, 235, 0.45);
+  border-radius: 0;
+  background: rgba(219, 234, 254, 0.55);
+  color: #000000;
+  font-family: Helvetica, Arial, sans-serif;
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ed-field:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  background: rgba(255, 255, 255, 0.9);
+}
+.ed-field:disabled {
+  background: rgba(229, 231, 235, 0.5);
+  border-color: rgba(107, 114, 128, 0.4);
+  color: #374151;
+}
+.ed-field.ed-field-painted {
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+}
+.ed-field-multiline {
+  resize: none;
+  padding: 2px;
+  line-height: 1.2;
+}
+.ed-field-check {
+  appearance: auto;
+  accent-color: #1d4ed8;
+  padding: 0;
+}
+.ed-field-select {
+  padding: 0;
+}
+.ed-field-list option {
+  padding: 0 2px;
+}
+
+/* ---- sticky note popover (upright, in view space) ---- */
+.ed-note-popover {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.ed-note-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+.ed-note-popover-header span {
+  flex: 1;
+}
+.ed-note-popover textarea,
+.ed-note-popover input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  resize: vertical;
+}
+
+.ed-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.ed-icon-btn:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}

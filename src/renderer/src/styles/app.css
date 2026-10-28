@@ -1,0 +1,51 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.viewer-column {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+/*
+ * The editing layer's PropertiesPanel returns null when nothing is selected. On wide windows the
+ * column stays put (with a hint) so the page does not shift or re-zoom whenever the tool changes;
+ * on narrow windows it collapses to give the page room.
+ */
+.properties-slot {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  width: var(--panel-w);
+  border-left: 1px solid var(--border);
+  background: var(--bg-elevated);
+  overflow-y: auto;
+}
+.properties-slot:empty::before {
+  content: 'Select an object to edit its properties.';
+  padding: 16px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+@media (max-width: 1099px) {
+  .properties-slot:empty {
+    display: none;
+  }
+}
+.properties-slot > * {
+  flex: 1;
+  min-width: 0;
+}

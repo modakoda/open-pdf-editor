@@ -1,0 +1,200 @@
+.ed-props {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.ed-props-title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ed-prop-hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.ed-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.ed-prop-label {
+  flex: none;
+  width: 72px;
+  color: var(--fg-muted);
+}
+
+.ed-prop-control {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.ed-props {
+  overflow-x: hidden;
+}
+
+.ed-prop-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ed-props select,
+.ed-props input[type='number'],
+.ed-props input:not([type]),
+.ed-props textarea {
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.ed-props select {
+  flex: 1;
+}
+.ed-props textarea {
+  height: auto;
+  padding: 4px 6px;
+  resize: vertical;
+}
+.ed-props input:not([type]) {
+  flex: 1;
+}
+
+.ed-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ed-number input {
+  width: 64px;
+}
+
+.ed-suffix {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ed-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-color input[type='color'] {
+  width: 36px;
+  height: 24px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.ed-color input[type='color']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ed-none {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.ed-range {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ed-range input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.ed-range .ed-suffix {
+  width: 34px;
+  text-align: right;
+}
+
+.ed-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.ed-toggle:hover {
+  background: var(--bg-sunken);
+}
+.ed-toggle.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ed-prop-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+}
+.ed-prop-grid label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ed-prop-grid .ed-prop-label {
+  width: 14px;
+}
+.ed-prop-grid .ed-number,
+.ed-prop-grid .ed-number input {
+  width: 100%;
+}
+
+.ed-prop-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ed-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.ed-action:hover {
+  background: var(--bg-sunken);
+}
+.ed-action-danger {
+  margin-left: auto;
+  color: var(--danger);
+}

@@ -1,0 +1,133 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-w);
+  flex: none;
+  min-height: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+}
+.sidebar-count {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.thumb-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 8px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.thumb-list:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 7px 6px 5px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.thumb:hover {
+  background: var(--bg-hover);
+}
+.thumb-frame {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), var(--shadow);
+  border-radius: 1px;
+  overflow: hidden;
+  transition: box-shadow 0.12s;
+}
+.thumb-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+.thumb-label {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 9px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+}
+
+.thumb.current .thumb-label {
+  color: var(--fg);
+  font-weight: 600;
+}
+.thumb.selected {
+  background: var(--accent-soft);
+}
+.thumb.selected .thumb-frame {
+  box-shadow: 0 0 0 2px var(--selection), var(--shadow);
+}
+.thumb.selected .thumb-label {
+  background: var(--selection);
+  color: #fff;
+  font-weight: 600;
+}
+.thumb-list:focus-visible .thumb.selected .thumb-frame {
+  box-shadow: 0 0 0 2px var(--selection), 0 0 0 5px var(--accent-soft);
+}
+
+.thumb.drop-before::before,
+.thumb.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.thumb.drop-before::before {
+  top: -5px;
+}
+.thumb.drop-after::after {
+  bottom: -5px;
+}
+
+.thumb-empty {
+  padding: 24px 0;
+  color: var(--fg-muted);
+}

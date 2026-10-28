@@ -198,3 +198,41 @@
   margin-left: auto;
   color: var(--danger);
 }
+
+.ed-prop-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.ed-prop-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.ed-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ed-commit input,
+.ed-commit textarea {
+  width: 100%;
+}
+.ed-commit [aria-invalid='true'] {
+  border-color: var(--danger) !important;
+}
+.ed-prop-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+.ed-action-wide {
+  width: auto;
+  gap: 5px;
+  padding: 0 10px;
+}
+.ed-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

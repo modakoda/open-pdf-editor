@@ -2,12 +2,13 @@ import { Fragment } from 'react'
 import { useEditor, type ToolId } from '@renderer/state/store'
 import { useEditing } from './editingState'
 import { SignatureDialog } from './SignatureDialog'
-import { activateTool, TOOLS } from './tools'
+import { isFieldTool } from './fields'
+import { activateTool, FIELD_TOOLS, TOOLS, type ToolDef } from './tools'
 import './ToolPalette.css'
 
 const GROUPS: ToolId[][] = [
   ['select', 'hand'],
-  ['text', 'edit-text'],
+  ['text', 'edit-content', 'form-design'],
   ['image', 'signature'],
   ['rect', 'ellipse', 'line', 'arrow', 'ink'],
   ['highlight', 'whiteout', 'note']
@@ -72,6 +73,37 @@ function QuickOptions({ tool }: { tool: ToolId }) {
   )
 }
 
+function ToolButton({ t, active, disabled }: { t: ToolDef; active: boolean; disabled: boolean }) {
+  const Icon = t.icon
+  const title = `${t.label}${t.hotkey ? ` (${t.hotkey})` : ''}${t.hint ? ' — ' + t.hint : ''}`
+  return (
+    <button
+      type="button"
+      className={`ed-tool-btn${active ? ' active' : ''}`}
+      data-testid={`tool-${t.id}`}
+      data-active={active ? 'true' : 'false'}
+      aria-pressed={active}
+      aria-label={t.label}
+      title={title}
+      disabled={disabled}
+      onClick={() => activateTool(t.id)}
+    >
+      <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+    </button>
+  )
+}
+
+/** Field creation tools, shown while preparing a form. */
+function FieldToolbar({ tool }: { tool: ToolId }) {
+  return (
+    <div className="ed-subtools" role="group" aria-label="Add form field" data-testid="field-tools">
+      {FIELD_TOOLS.map((t) => (
+        <ToolButton key={t.id} t={t} active={tool === t.id} disabled={false} />
+      ))}
+    </div>
+  )
+}
+
 /** Tool buttons (data-testid="tool-<id>") placed in the main toolbar by the workspace. */
 export function ToolPalette() {
   const tool = useEditor((s) => s.tool)
@@ -79,34 +111,23 @@ export function ToolPalette() {
   const signatureOpen = useEditing((s) => s.signatureOpen)
   const setSignatureOpen = useEditing((s) => s.setSignatureOpen)
   const byId = new Map(TOOLS.map((t) => [t.id, t]))
+  const designing = tool === 'form-design' || isFieldTool(tool)
 
   return (
     <div className="ed-palette" role="toolbar" aria-label="Editing tools">
       {GROUPS.map((group, gi) => (
         <Fragment key={gi}>
           {gi > 0 && <span className="ed-palette-sep" aria-hidden="true" />}
-          {group.map((id) => {
-            const t = byId.get(id)!
-            const Icon = t.icon
-            const active = tool === id || (id === 'signature' && signatureOpen)
-            const title = `${t.label} (${t.hotkey})${t.hint ? ' — ' + t.hint : ''}`
-            return (
-              <button
-                key={id}
-                type="button"
-                className={`ed-tool-btn${active ? ' active' : ''}`}
-                data-testid={`tool-${id}`}
-                data-active={active ? 'true' : 'false'}
-                aria-pressed={active}
-                aria-label={t.label}
-                title={title}
+          {group.map((id) => (
+            <Fragment key={id}>
+              <ToolButton
+                t={byId.get(id)!}
+                active={tool === id || (id === 'signature' && signatureOpen) || (id === 'form-design' && designing)}
                 disabled={!hasDoc && id !== 'select' && id !== 'hand'}
-                onClick={() => activateTool(id)}
-              >
-                <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
-              </button>
-            )
-          })}
+              />
+              {id === 'form-design' && designing && hasDoc && <FieldToolbar tool={tool} />}
+            </Fragment>
+          ))}
         </Fragment>
       ))}
       <QuickOptions tool={tool} />

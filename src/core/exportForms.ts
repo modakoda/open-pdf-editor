@@ -23,7 +23,7 @@ import {
 import type { FormValue } from './model'
 import type { EmbedCache } from './exportFonts'
 import { createWidgetPageFinder } from './pdf'
-import { flattenAllWidgets } from './flatten'
+import { detachAllWidgets, flattenAllWidgets, type WidgetBurn } from './flatten'
 import {
   buttonStates,
   choiceOptions,
@@ -157,7 +157,7 @@ function daString(o: PDFObject | undefined): string | undefined {
 }
 
 /** Make sure the font named by the field's (inherited) /DA exists in the AcroForm /DR. */
-function ensureDAFontInDR(doc: PDFDocument, field: PDFField): void {
+export function ensureDAFontInDR(doc: PDFDocument, field: PDFField): void {
   const acroForm = acroFormDict(doc)
   if (!acroForm) return
   let da: string | undefined
@@ -214,7 +214,7 @@ export async function updateFieldAppearance(doc: PDFDocument, field: PDFField, c
   }
 }
 
-function fieldsByName(form: PDFForm): Map<string, PDFField> {
+export function fieldsByName(form: PDFForm): Map<string, PDFField> {
   const map = new Map<string, PDFField>()
   for (const f of quiet(() => form.getFields()) ?? []) {
     const name = quiet(() => f.getName())
@@ -228,10 +228,11 @@ export async function fillForm(
   doc: PDFDocument,
   form: PDFForm,
   values: Record<string, FormValue> | undefined,
-  cache: EmbedCache
+  cache: EmbedCache,
+  /** Fields by ORIGINAL name (build it before applying renames). */
+  byName: Map<string, PDFField> = fieldsByName(form)
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
-  const byName = fieldsByName(form)
   for (const [name, value] of Object.entries(values)) {
     if (value === undefined || value === null) continue
     const field = byName.get(name)
@@ -262,6 +263,17 @@ export async function refreshAppearancesForBurning(doc: PDFDocument, form: PDFFo
 export async function flattenForm(doc: PDFDocument, form: PDFForm, pages: PDFPage[], cache: EmbedCache): Promise<void> {
   await refreshAppearancesForBurning(doc, form, cache)
   flattenAllWidgets(doc, pages)
+}
+
+/** Like flattenForm, but only removes the form: returns the appearances to burn later. */
+export async function detachForm(
+  doc: PDFDocument,
+  form: PDFForm,
+  pages: PDFPage[],
+  cache: EmbedCache
+): Promise<Map<PDFPage, WidgetBurn[]>> {
+  await refreshAppearancesForBurning(doc, form, cache)
+  return detachAllWidgets(doc, pages)
 }
 
 /**

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { detectImageMime, readImageSizeFromHeader } from '@renderer/editing/images'
 import { mapPaths, normalizeAngle, resizeBox, rotationFromPointer, simplifyPath, snapLine } from '@renderer/editing/manip'
-import { classifyFont, extractTextRuns, mergeRuns } from '@renderer/editing/textRuns'
 import { screenDeltaToPage } from '@renderer/editing/useEditingShortcuts'
 import { placedImageBox } from '@renderer/editing/objects'
 import { makePage, pngBytes } from './helpers'
@@ -75,51 +74,5 @@ describe('images', () => {
     expect(small).toEqual({ x: 262.5, y: 381.25, width: 75, height: 37.5 })
     const big = placedImageBox(page, { data: new Uint8Array(), mimeType: 'image/png', width: 4000, height: 1000 }, { x: 0, y: 0 })
     expect(big).toMatchObject({ x: 0, y: 0, width: 240, height: 60 })
-  })
-})
-
-describe('text runs', () => {
-  it('classifies fonts', () => {
-    expect(classifyFont('ABCDEF+Times-BoldItalic', 'serif')).toEqual({ font: 'serif', bold: true, italic: true })
-    expect(classifyFont('Courier', 'monospace')).toMatchObject({ font: 'mono' })
-    expect(classifyFont('DejaVuSans-Oblique', 'sans-serif')).toEqual({ font: 'sans', bold: false, italic: true })
-    expect(classifyFont(undefined, 'serif')).toMatchObject({ font: 'serif' })
-  })
-
-  it('extracts runs in page space, merging adjacent items on the same line', () => {
-    const runs = extractTextRuns(
-      {
-        items: [
-          { str: 'A', transform: [10, 0, 0, 10, 10, 90], width: 6, height: 10, fontName: 'f' },
-          { str: 'B', transform: [10, 0, 0, 10, 16, 90], width: 6, height: 10, fontName: 'f' },
-          { str: 'far', transform: [10, 0, 0, 10, 80, 90], width: 15, height: 10, fontName: 'f' },
-          { type: 'beginMarkedContent' }
-        ],
-        styles: { f: { ascent: 0.8, descent: -0.2 } }
-      },
-      [1, 0, 0, -1, 0, 100]
-    )
-    expect(runs.map((r) => r.text)).toEqual(['AB', 'far'])
-    expect(runs[0]).toMatchObject({ x: 10, baseline: 10, top: 2, width: 12, height: 10, fontSize: 10, angle: 0 })
-  })
-
-  it('inserts a space when merging items separated by a gap', () => {
-    const base = { x: 0, baseline: 10, top: 2, width: 20, height: 10, fontSize: 10, angle: 0, font: 'sans' as const, bold: false, italic: false }
-    const merged = mergeRuns([
-      { ...base, key: 'a', text: 'foo' },
-      { ...base, key: 'b', text: 'bar', x: 23 }
-    ])
-    expect(merged).toHaveLength(1)
-    expect(merged[0].text).toBe('foo bar')
-    expect(merged[0].width).toBe(43)
-  })
-
-  it('handles text on rotated PDF pages via the unrotated viewport', () => {
-    // Text drawn rotated 90° in user space shows up with angle 90 in page space.
-    const runs = extractTextRuns(
-      { items: [{ str: 'Up', transform: [0, 10, -10, 0, 50, 50], width: 12, height: 10, fontName: 'f' }], styles: {} },
-      [1, 0, 0, -1, 0, 100]
-    )
-    expect(runs[0].angle).toBeCloseTo(-90)
   })
 })

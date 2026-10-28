@@ -40,7 +40,7 @@ describe('loadSource', () => {
     expect(src.metadata.author).toBe('Fixture Author')
     expect(src.formFields).toEqual([])
     expect(src.pageInfo).toHaveLength(3)
-    expect(src.pageInfo![0]).toEqual({ width: A4[0], height: A4[1], rotation: 0 })
+    expect(src.pageInfo![0]).toEqual({ width: A4[0], height: A4[1], rotation: 0, annotations: [] })
   })
 
   it('reads /Rotate of every page (unrotated sizes)', async () => {
@@ -58,7 +58,7 @@ describe('loadSource', () => {
     const [view] = await pageInfo(bytes)
     expect(src.pageInfo![0].width).toBeCloseTo(view.view[2] - view.view[0])
     expect(src.pageInfo![0].height).toBeCloseTo(view.view[3] - view.view[1])
-    expect(src.pageInfo![0]).toEqual({ width: 500, height: 600, rotation: 0 })
+    expect(src.pageInfo![0]).toEqual({ width: 500, height: 600, rotation: 0, annotations: [] })
   })
 
   it('reads mixed page sizes', async () => {
@@ -69,8 +69,8 @@ describe('loadSource', () => {
   it('resolves inherited MediaBox and Rotate', async () => {
     const src = await loadSource(await makeInheritedAttributesPdf(), 'inherited.pdf')
     expect(src.pageInfo).toEqual([
-      { width: 400, height: 600, rotation: 90 },
-      { width: 400, height: 600, rotation: 90 }
+      { width: 400, height: 600, rotation: 90, annotations: [] },
+      { width: 400, height: 600, rotation: 90, annotations: [] }
     ])
   })
 

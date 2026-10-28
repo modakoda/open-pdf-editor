@@ -11,6 +11,8 @@ import {
   LineJoinStyle,
   PDFHexString,
   PDFName,
+  PDFOperator,
+  PDFOperatorNames,
   PDFString,
   closePath,
   concatTransformationMatrix,
@@ -27,7 +29,6 @@ import {
   setStrokingRgbColor,
   stroke,
   type PDFDocument,
-  type PDFOperator,
   type PDFPage,
   type PDFPageLeaf,
   type RGB
@@ -53,6 +54,8 @@ import type {
   WatermarkSettings
 } from './model'
 import { parseColor } from './pdf'
+import { OBJECT_MARK, regenerateAppearance } from './annotations'
+import { OPE_MARK } from './content'
 import { fontMetrics, layoutText, prepareText } from './text'
 import type { EmbedCache } from './exportFonts'
 
@@ -272,7 +275,7 @@ function drawInk(t: DrawTarget, obj: InkObject): void {
   t.page.pushOperators(...ops)
 }
 
-function addNote(t: DrawTarget, obj: NoteObject): void {
+async function addNote(t: DrawTarget, obj: NoteObject, cache: EmbedCache): Promise<void> {
   const { x, y } = toPdf(t, { x: obj.x, y: obj.y })
   const c = parseColor(obj.color || '#ffd400')
   const S = NOTE_ICON_SIZE
@@ -292,13 +295,34 @@ function addNote(t: DrawTarget, obj: NoteObject): void {
     P: t.page.ref
   })
   if (obj.author) dict.set(PDFName.of('T'), PDFHexString.fromText(obj.author))
+  dict.set(OBJECT_MARK, PDFString.of(obj.id))
   const opacity = opacityOf(obj.opacity)
   if (opacity < 1) dict.set(PDFName.of('CA'), ctx.obj(opacity))
+  // Always give the note an appearance: viewers (pdf.js among them) skip annotations without one.
+  await regenerateAppearance(t.doc, dict, cache)
   t.page.node.addAnnot(ctx.register(dict))
 }
 
 /** Draw one object. Failures of a single object (e.g. a corrupt image) do not abort the export. */
+/**
+ * Draw one object. Content drawings are wrapped in `/OPEObject <</Id (id)>> BDC … EMC` so a
+ * later export of the saved file can find and remove them (see persist.ts). Fields are
+ * created separately (fieldEdits.ts); notes become annotations marked with /OPEObjectId.
+ */
 export async function drawObject(t: DrawTarget, obj: EditObject, cache: EmbedCache): Promise<void> {
+  if (obj.type === 'field') return
+  if (obj.type === 'note') return addNote(t, obj, cache)
+  // Inline property list, written verbatim (pdf-lib's operator args do not include dicts).
+  const props = `<< /Id (${obj.id.replace(/[\\()]/g, (c) => `\\${c}`)}) >>`
+  t.page.pushOperators(PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [PDFName.of(OPE_MARK), props]))
+  try {
+    await drawObjectContent(t, obj, cache)
+  } finally {
+    t.page.pushOperators(PDFOperator.of(PDFOperatorNames.EndMarkedContent))
+  }
+}
+
+async function drawObjectContent(t: DrawTarget, obj: EditObject, cache: EmbedCache): Promise<void> {
   switch (obj.type) {
     case 'text':
       return drawText(t, obj, cache)
@@ -315,8 +339,8 @@ export async function drawObject(t: DrawTarget, obj: EditObject, cache: EmbedCac
       return drawLine(t, obj)
     case 'ink':
       return drawInk(t, obj)
-    case 'note':
-      return addNote(t, obj)
+    default:
+      return
   }
 }
 

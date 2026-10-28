@@ -10,6 +10,7 @@ import {
   type Box,
   type EditObject,
   type EditorDocument,
+  type FieldObject,
   type ImageObject,
   type LineObject,
   type NoteObject,
@@ -190,10 +191,35 @@ export function duplicateSelected(): string | null {
   const { doc, selectedObjectId, apply, selectObject } = useEditor.getState()
   const obj = findObject(doc, selectedObjectId)
   if (!obj) return null
-  const copy = { ...translateObject(obj, DUPLICATE_OFFSET, DUPLICATE_OFFSET), id: newObjectId() } as EditObject
-  apply((d) => addObject(d, copy))
-  selectObject(copy.id)
-  return copy.id
+  let copy = { ...translateObject(obj, DUPLICATE_OFFSET, DUPLICATE_OFFSET), id: newObjectId() } as EditObject
+  if (copy.type === 'field' && doc) copy = { ...copy, ...duplicateFieldNaming(doc, copy) }
+  const added = copy
+  apply((d) => addObject(d, added))
+  selectObject(added.id)
+  return added.id
+}
+
+/**
+ * A duplicated field needs its own name (Text1 → Text2); a duplicated radio button stays in
+ * its group with a new export value.
+ */
+function duplicateFieldNaming(doc: EditorDocument, f: FieldObject): Partial<FieldObject> {
+  const radios = doc.objects.filter((o): o is FieldObject => o.type === 'field' && o.fieldType === 'radio')
+  if (f.fieldType === 'radio') {
+    const used = new Set(radios.filter((o) => o.name === f.name).map((o) => o.exportValue ?? ''))
+    let n = 1
+    while (used.has(`Choice${n}`)) n++
+    return { exportValue: `Choice${n}` }
+  }
+  const used = new Set<string>([
+    ...doc.objects.filter((o): o is FieldObject => o.type === 'field').map((o) => o.name),
+    ...Object.values(doc.sources).flatMap((src) => src.formFields.map((ff) => ff.name)),
+    ...Object.values(doc.fieldEdits ?? {}).flatMap((edits) => Object.values(edits).map((e) => e.name ?? ''))
+  ])
+  const base = f.name.replace(/\d+$/, '') || 'Field'
+  let n = 1
+  while (used.has(`${base}${n}`)) n++
+  return { name: `${base}${n}` }
 }
 
 /** Box objects that support rotation (highlight and whiteout boxes do not). */
@@ -203,7 +229,7 @@ export function hasRotation(obj: EditObject): obj is TextObject | ImageObject | 
 
 /** Bounding box of any object (unrotated). */
 export function objectBounds(obj: EditObject): Box {
-  if (isBoxObject(obj)) return { x: obj.x, y: obj.y, width: obj.width, height: obj.height }
+  if (isBoxObject(obj) || obj.type === 'field') return { x: obj.x, y: obj.y, width: obj.width, height: obj.height }
   switch (obj.type) {
     case 'line':
       return {

@@ -10,12 +10,12 @@ import {
   insertSourcePages,
   loadSource,
   movePages,
-  removeObject,
   rotatePages,
   type EditorDocument,
   type SourceDocument
 } from '@core'
 import type { OpenedFile } from '@shared/ipc'
+import { deleteSelection as deleteEditingSelection } from '@renderer/editing'
 import { platform } from '@renderer/platform'
 import { confirmDialog, openDialog } from '@renderer/state/dialogs'
 import { getTargetPageIds, pageIndexOf } from '@renderer/state/selectors'
@@ -109,12 +109,19 @@ export function selectAllPages(): void {
   editor().setSelectedPages(doc.pages.map((p) => p.id))
 }
 
-/** Delete the selected object, else the selected pages. */
+/**
+ * Delete the selection. A selected object or existing element (content item, annotation, form
+ * field) is deleted by the editing layer; with neither selected, the selected pages are deleted.
+ */
 export async function deleteSelection(): Promise<void> {
-  const { doc, selectedObjectId, selectedPageIds } = editor()
+  const { doc, selectedObjectId, selectedElement, selectedPageIds } = editor()
   if (!doc) return
-  if (selectedObjectId) {
-    if (applyEdit('Delete', (d) => removeObject(d, selectedObjectId))) editor().selectObject(null)
+  if (selectedObjectId || selectedElement) {
+    try {
+      deleteEditingSelection()
+    } catch (err) {
+      notifyError('Delete failed', err)
+    }
     return
   }
   if (selectedPageIds.length) await deleteTargetPages()

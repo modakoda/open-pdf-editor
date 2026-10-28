@@ -59,7 +59,7 @@ describe('ToolPalette', () => {
   it('renders every tool with an active state and switches tools', async () => {
     const user = userEvent.setup()
     render(<ToolPalette />)
-    for (const id of ['select', 'hand', 'text', 'edit-text', 'image', 'signature', 'rect', 'ellipse', 'line', 'arrow', 'ink', 'highlight', 'whiteout', 'note']) {
+    for (const id of ['select', 'hand', 'text', 'edit-content', 'form-design', 'image', 'signature', 'rect', 'ellipse', 'line', 'arrow', 'ink', 'highlight', 'whiteout', 'note']) {
       const btn = screen.getByTestId(`tool-${id}`)
       expect(btn).toHaveAttribute('title')
       expect(btn).toHaveAttribute('aria-label')
@@ -69,7 +69,7 @@ describe('ToolPalette', () => {
     expect(store().tool).toBe('rect')
     expect(screen.getByTestId('tool-rect')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('tool-select')).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByTestId('tool-edit-text').title).toMatch(/covered/i)
+    expect(screen.getByTestId('tool-edit-content').title).toMatch(/already in the PDF/i)
     // Quick options for the active tool.
     fireEvent.input(screen.getByTestId('tool-color'), { target: { value: '#ff0000' } })
     expect(store().toolOptions.color).toBe('#ff0000')

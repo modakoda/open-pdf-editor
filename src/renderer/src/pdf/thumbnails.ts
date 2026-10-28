@@ -44,21 +44,11 @@ export function thumbnailKey(sourceId: string, pageIndex: number, rotation: numb
   return `${sourceId}|${pageIndex}|${rotation}|${pixelWidth}`
 }
 
-/**
- * Blob URL of a thumbnail `pixelWidth` device pixels wide (height follows the aspect ratio of
- * the page displayed with `rotation`).
- */
-export function getThumbnailUrl(
-  source: SourceDocument,
-  pageIndex: number,
-  rotation: number,
-  pixelWidth: number
-): Promise<string> {
-  const key = thumbnailKey(source.id, pageIndex, rotation, pixelWidth)
+function renderThumbnail(key: string, load: () => ReturnType<typeof getPdfPage>, rotation: number, pixelWidth: number): Promise<string> {
   let entry = cache.get(key)
   if (!entry) {
     entry = schedule(async () => {
-      const page = await getPdfPage(source, pageIndex)
+      const page = await load()
       const base = page.getViewport({ scale: 1, rotation })
       const viewport = page.getViewport({ scale: pixelWidth / base.width, rotation })
       const canvas = document.createElement('canvas')
@@ -74,6 +64,41 @@ export function getThumbnailUrl(
     cache.set(key, entry)
   }
   return entry
+}
+
+/**
+ * Blob URL of a thumbnail `pixelWidth` device pixels wide (height follows the aspect ratio of
+ * the page displayed with `rotation`).
+ */
+export function getThumbnailUrl(
+  source: SourceDocument,
+  pageIndex: number,
+  rotation: number,
+  pixelWidth: number
+): Promise<string> {
+  return renderThumbnail(thumbnailKey(source.id, pageIndex, rotation, pixelWidth), () => getPdfPage(source, pageIndex), rotation, pixelWidth)
+}
+
+/**
+ * Thumbnail of a page shown from its preview document (see pdf/previews.ts). Only the latest
+ * preview state of each page is cached; thumbnails of older states are freed.
+ */
+export function getPreviewThumbnailUrl(
+  pageId: string,
+  previewKey: string,
+  loadPreviewPage: () => ReturnType<typeof getPdfPage>,
+  rotation: number,
+  pixelWidth: number
+): Promise<string> {
+  const prefix = `preview|${pageId}|`
+  const key = `${prefix}${previewKey}|${rotation}|${pixelWidth}`
+  for (const [k, entry] of cache) {
+    if (k.startsWith(prefix) && !k.startsWith(`${prefix}${previewKey}|`)) {
+      cache.delete(k)
+      entry.then((url) => url.startsWith('blob:') && URL.revokeObjectURL(url)).catch(() => undefined)
+    }
+  }
+  return renderThumbnail(key, loadPreviewPage, rotation, pixelWidth)
 }
 
 /** Drop cached thumbnails of sources that are not in `keepSourceIds`. */

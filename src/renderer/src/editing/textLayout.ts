@@ -63,3 +63,8 @@ export function safeMeasure(text: string, style: Pick<TextObject, 'font' | 'bold
     return text.length * style.fontSize * 0.5
   }
 }
+
+/** Width of an existing text run re-set in the generic font closest to its original. */
+export function measureContentText(text: string, item: { fontFamily?: FontFamily; bold?: boolean; italic?: boolean }, fontSize: number): number {
+  return safeMeasure(text, { font: item.fontFamily ?? 'sans', bold: !!item.bold, italic: !!item.italic, fontSize })
+}

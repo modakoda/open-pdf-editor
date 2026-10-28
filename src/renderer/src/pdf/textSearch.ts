@@ -33,12 +33,13 @@ interface RawTextItem {
 
 const cache = new Map<string, Promise<PageTextIndex>>()
 
-export function getPageTextIndex(source: SourceDocument, pageIndex: number): Promise<PageTextIndex> {
-  const key = `${source.id}|${pageIndex}`
+type TextPage = Awaited<ReturnType<typeof getPdfPage>>
+
+function indexFor(key: string, load: () => Promise<TextPage>): Promise<PageTextIndex> {
   let entry = cache.get(key)
   if (!entry) {
     entry = (async () => {
-      const page = await getPdfPage(source, pageIndex)
+      const page = await load()
       const viewport = page.getViewport({ scale: 1, rotation: 0 })
       const content = await page.getTextContent()
       return buildIndex(content.items as unknown as RawTextItem[], (x, y) => {
@@ -50,6 +51,17 @@ export function getPageTextIndex(source: SourceDocument, pageIndex: number): Pro
     cache.set(key, entry)
   }
   return entry
+}
+
+export function getPageTextIndex(source: SourceDocument, pageIndex: number): Promise<PageTextIndex> {
+  return indexFor(`${source.id}|${pageIndex}`, () => getPdfPage(source, pageIndex))
+}
+
+/** Text of a page shown from its preview document (only the latest state per page is cached). */
+export function getPreviewTextIndex(pageId: string, previewKey: string, load: () => Promise<TextPage>): Promise<PageTextIndex> {
+  const prefix = `preview|${pageId}|`
+  for (const k of cache.keys()) if (k.startsWith(prefix) && k !== prefix + previewKey) cache.delete(k)
+  return indexFor(prefix + previewKey, load)
 }
 
 export function buildIndex(

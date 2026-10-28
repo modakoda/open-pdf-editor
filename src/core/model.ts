@@ -105,6 +105,53 @@ export interface SourcePageInfo {
   height: number
   /** The page's /Rotate, normalized to 0/90/180/270. */
   rotation: Rotation
+  /** Annotations on this page, excluding form widgets and popups (filled in by loadSource). */
+  annotations?: AnnotationInfo[]
+  /**
+   * Ids of EditObjects that were drawn on this page by Open PDF Editor in an earlier save and
+   * restored into EditorDocument.objects by openDocument(). Their drawings in the page content
+   * are hidden by renderPagePreview() and removed on export (the objects are drawn again).
+   */
+  restoredObjectIds?: string[]
+  /**
+   * The restored EditObjects themselves, in z-order, with `pageId: ''`. openDocument() and
+   * insertSourcePages() copy them into EditorDocument.objects with the new page's id (fresh
+   * object ids where they would clash). Their ids are the ids in `restoredObjectIds`.
+   */
+  restoredObjects?: EditObject[]
+}
+
+/** An annotation that already exists in a source page (comment, highlight, link, stamp…). */
+export interface AnnotationInfo {
+  /** Stable within its source page (does not change between loads of the same file). */
+  id: string
+  /** PDF subtype without the slash: 'Text', 'FreeText', 'Highlight', 'Link', 'Square', 'Ink', 'Stamp', … */
+  subtype: string
+  /** Annotation rectangle in page space. */
+  bounds: Box
+  contents?: string
+  author?: string
+  color?: Color
+  /** Link annotations with a URI action. */
+  uri?: string
+  /**
+   * Whether the annotation has a usable normal appearance (/AP /N for its current state).
+   * pdf.js only paints annotations that have one, so e.g. sticky notes without it are invisible
+   * on the canvas and the editing layer has to draw them.
+   */
+  hasAppearance?: boolean
+}
+
+/** A change to an existing annotation. */
+export interface AnnotationEdit {
+  annotId: string
+  deleted?: boolean
+  /** New rectangle in page space; the annotation's geometry (QuadPoints, InkList, vertices, appearance) follows it. */
+  bounds?: Box
+  contents?: string
+  author?: string
+  color?: Color
+  uri?: string
 }
 
 /** A PDF file that pages are taken from. The first opened file is the primary source. */
@@ -138,6 +185,89 @@ export interface SourceDocument {
    * loadSource(); optional only so hand-built SourceDocuments stay valid (A4 is assumed then).
    */
   pageInfo?: SourcePageInfo[]
+}
+
+/** Kinds of content that already exist in a page's content stream. */
+export type ContentItemKind = 'text' | 'image' | 'path' | 'xobject' | 'shading'
+
+/** Affine matrix [a b c d e f]: p' = (a·x + c·y + e, b·x + d·y + f). In page space unless stated. */
+export type Matrix = [number, number, number, number, number, number]
+
+/**
+ * A piece of existing page content (a line of text, an image, a vector path, a form XObject…)
+ * found by parsing the source page's content stream. See getContentItems().
+ */
+export interface ContentItem {
+  /** Stable within its source page (derived from the item's position in the content stream). */
+  id: string
+  kind: ContentItemKind
+  /** Axis-aligned bounds of the original item in page space. */
+  bounds: Box
+  /** The item's own box as a quad in page space [top-left, top-right, bottom-right, bottom-left]; differs from bounds when rotated/skewed. */
+  quad?: [Point, Point, Point, Point]
+  /** Text items: decoded Unicode text of the run (one visual line segment). */
+  text?: string
+  /** Text items: effective font size in points. */
+  fontSize?: number
+  /** Text items: font name from the PDF (subset prefix removed), e.g. "Arial-BoldMT". */
+  fontName?: string
+  /** Text items: closest generic family / style, used when the text must be re-set in another font. */
+  fontFamily?: FontFamily
+  bold?: boolean
+  italic?: boolean
+  /** Fill color (text, filled paths) when representable as RGB. */
+  color?: Color
+  /**
+   * Stroke color of stroked paths / stroked text when representable as RGB. For stroke-only
+   * paths `color` is the stroke color too, and ContentEdit.color recolors the stroke.
+   */
+  strokeColor?: Color
+  /** Text items: baseline start point in page space and baseline angle (degrees clockwise). */
+  origin?: Point
+  angle?: number
+  /** Text items: whether replacement text can be written with the original font (otherwise a fallback font is used). */
+  editableInPlace?: boolean
+}
+
+/** A change to an existing content item (see ContentItem). */
+export interface ContentEdit {
+  itemId: string
+  /** Remove the item from the page. */
+  deleted?: boolean
+  /**
+   * Total transform applied to the original item in page space (y down), e.g. a move is
+   * [1, 0, 0, 1, dx, dy]. Omitted = identity. Not cumulative across edits: it always maps the
+   * ORIGINAL item to its current placement.
+   */
+  transform?: Matrix
+  /** Text items: replacement text. The original glyphs are removed, not covered. */
+  text?: string
+  /** Text and path items: replacement fill color. */
+  color?: Color
+  /** Text items: replacement font size in points. */
+  fontSize?: number
+}
+
+/**
+ * A change to an existing form field. Keyed by the field's ORIGINAL name everywhere
+ * (EditorDocument.fieldEdits and formValues), even after a rename.
+ */
+export interface FieldEdit {
+  deleted?: boolean
+  /** New fully qualified name. */
+  name?: string
+  /** New widget rectangles in page space, aligned with FormFieldInfo.widgets. */
+  widgetBoxes?: Box[]
+  readOnly?: boolean
+  required?: boolean
+  multiline?: boolean
+  /** null removes the limit. */
+  maxLength?: number | null
+  /** Choice/radio fields: replacement options (export values) and display labels. */
+  options?: string[]
+  optionLabels?: string[] | null
+  /** Text size for the field's value; 0 = auto. */
+  fontSize?: number
 }
 
 export type PageSource =
@@ -177,7 +307,7 @@ export interface TextObject extends BaseObject, Box {
   /** Line height as a multiple of fontSize (default 1.2). */
   lineHeight: number
   rotation: number
-  /** Optional opaque fill behind the text (used by "edit existing text" to cover the original). */
+  /** Optional opaque fill behind the text. */
   background?: Color | null
 }
 
@@ -202,7 +332,7 @@ export interface HighlightObject extends BaseObject, Box {
   color: Color
 }
 
-/** Opaque cover (default white). NOTE: hides content visually; it does not remove it. */
+/** Opaque cover (default white). NOTE: hides content visually; it does not remove it (use a ContentEdit to delete). */
 export interface WhiteoutObject extends BaseObject, Box {
   type: 'whiteout'
   color: Color
@@ -238,7 +368,33 @@ export interface NoteObject extends BaseObject {
   author?: string
 }
 
+export type NewFieldType = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'optionlist' | 'signature'
+
+/**
+ * A new interactive form field placed by the user (one widget). Exported as a real AcroForm
+ * field. Radio FieldObjects with the same `name` on the same document form one group.
+ */
+export interface FieldObject extends BaseObject, Box {
+  type: 'field'
+  fieldType: NewFieldType
+  /** Fully qualified field name; must not clash with existing fields of the primary source. */
+  name: string
+  /** Radio: this widget's export value. Checkbox: on-value (default "Yes"). */
+  exportValue?: string
+  /** Dropdown / option list choices. */
+  options?: string[]
+  /** Current value: text → string, checkbox → boolean, radio/dropdown → string, optionlist → string[]. */
+  value?: FormValue
+  multiline?: boolean
+  required?: boolean
+  readOnly?: boolean
+  maxLength?: number
+  /** 0 = auto. */
+  fontSize?: number
+}
+
 export type EditObject =
+  | FieldObject
   | TextObject
   | ImageObject
   | ShapeObject
@@ -326,9 +482,15 @@ export interface EditorDocument {
   pages: PageEntry[]
   /** Objects added by the user, in z-order (later = on top). */
   objects: EditObject[]
-  /** User-changed form values: sourceId → field name → value. */
+  /** User-changed form values: sourceId → field name (original) → value. */
   formValues: Record<string, Record<string, FormValue>>
   settings: DocumentSettings
+  /** Edits to existing page content: pageId → edits (item ids refer to that page's source page). */
+  contentEdits?: Record<string, ContentEdit[]>
+  /** Edits to existing annotations: pageId → edits. */
+  annotationEdits?: Record<string, AnnotationEdit[]>
+  /** Structural edits to existing form fields: sourceId → original field name → edit. */
+  fieldEdits?: Record<string, Record<string, FieldEdit>>
 }
 
 /** Standard page sizes in points. */

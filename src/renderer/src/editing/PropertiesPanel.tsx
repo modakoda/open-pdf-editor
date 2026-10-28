@@ -1,9 +1,13 @@
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { ArrowUpRight, Bold, BringToFront, Copy, Italic, SendToBack, TextAlignCenter, TextAlignEnd, TextAlignStart, Trash } from 'lucide-react'
 import { isBoxObject, reorderObject, type Color, type EditObject, type FontFamily } from '@core'
 import { useEditor, type ToolId, type ToolOptions } from '@renderer/state/store'
 import { useEditing } from './editingState'
+import { AnnotationProperties, ContentProperties, FieldObjectRows, FieldProperties } from './ElementProperties'
+import { FIELD_TYPE_LABELS } from './fields'
 import { deleteSelected, duplicateSelected, findObject, hasRotation, updateObjectFitted } from './objects'
+import { ColorInput, FontSelect, NumberInput, OpacityInput, Row, Toggle } from './propControls'
+import { resolveSelected } from './selection'
 import { normalizeAngle } from './manip'
 import { TOOLS, toolHasOptions } from './tools'
 import './PropertiesPanel.css'
@@ -17,146 +21,8 @@ const TYPE_LABELS: Record<EditObject['type'], string> = {
   whiteout: 'Whiteout',
   line: 'Line',
   ink: 'Drawing',
-  note: 'Sticky note'
-}
-
-const FONT_LABELS: Record<FontFamily, string> = { sans: 'Sans-serif', serif: 'Serif', mono: 'Monospace' }
-
-function toHex(c: string | null | undefined, fallback = '#000000'): string {
-  if (!c) return fallback
-  if (/^#[0-9a-f]{6}$/i.test(c)) return c.toLowerCase()
-  const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(c)
-  return m ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}`.toLowerCase() : fallback
-}
-
-const fmt = (v: number) => String(Math.round(v * 100) / 100)
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="ed-prop-row">
-      <span className="ed-prop-label">{label}</span>
-      <div className="ed-prop-control">{children}</div>
-    </div>
-  )
-}
-
-function NumberInput(props: {
-  value: number
-  onChange(v: number): void
-  testId: string
-  label: string
-  min?: number
-  max?: number
-  step?: number
-  suffix?: string
-}) {
-  const { value, onChange, testId, label, min = -Infinity, max = Infinity, step = 1, suffix } = props
-  const [draft, setDraft] = useState<string | null>(null)
-  return (
-    <span className="ed-number">
-      <input
-        type="number"
-        data-testid={testId}
-        aria-label={label}
-        value={draft ?? fmt(value)}
-        min={Number.isFinite(min) ? min : undefined}
-        max={Number.isFinite(max) ? max : undefined}
-        step={step}
-        onChange={(e) => {
-          setDraft(e.target.value)
-          const n = parseFloat(e.target.value)
-          if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)))
-        }}
-        onBlur={() => setDraft(null)}
-      />
-      {suffix && <span className="ed-suffix">{suffix}</span>}
-    </span>
-  )
-}
-
-function ColorInput(props: {
-  value: Color | null
-  onChange(v: Color | null): void
-  testId: string
-  label: string
-  allowNone?: boolean
-  fallback?: Color
-}) {
-  const { value, onChange, testId, label, allowNone, fallback = '#000000' } = props
-  const [last, setLast] = useState(toHex(value, fallback))
-  const none = value === null || value === undefined
-  return (
-    <span className="ed-color">
-      <input
-        type="color"
-        data-testid={testId}
-        aria-label={label}
-        value={none ? last : toHex(value, fallback)}
-        disabled={allowNone && none}
-        onChange={(e) => {
-          setLast(e.target.value)
-          onChange(e.target.value)
-        }}
-      />
-      {allowNone && (
-        <label className="ed-none">
-          <input
-            type="checkbox"
-            data-testid={`${testId}-none`}
-            checked={none}
-            onChange={(e) => onChange(e.target.checked ? null : last)}
-          />
-          None
-        </label>
-      )}
-    </span>
-  )
-}
-
-function OpacityInput({ value, onChange, testId }: { value: number; onChange(v: number): void; testId: string }) {
-  return (
-    <span className="ed-range">
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        data-testid={testId}
-        aria-label="Opacity"
-        value={Math.round(value * 100)}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-      />
-      <span className="ed-suffix">{Math.round(value * 100)}%</span>
-    </span>
-  )
-}
-
-function FontSelect({ value, onChange, testId }: { value: FontFamily; onChange(v: FontFamily): void; testId: string }) {
-  return (
-    <select data-testid={testId} aria-label="Font" value={value} onChange={(e) => onChange(e.target.value as FontFamily)}>
-      {(Object.keys(FONT_LABELS) as FontFamily[]).map((f) => (
-        <option key={f} value={f}>
-          {FONT_LABELS[f]}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function Toggle(props: { pressed: boolean; onChange(v: boolean): void; label: string; testId: string; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      className={`ed-toggle${props.pressed ? ' active' : ''}`}
-      aria-pressed={props.pressed}
-      aria-label={props.label}
-      title={props.label}
-      data-testid={props.testId}
-      onClick={() => props.onChange(!props.pressed)}
-    >
-      {props.children}
-    </button>
-  )
+  note: 'Sticky note',
+  field: 'Form field'
 }
 
 type Setter = (field: string, value: unknown) => void
@@ -195,6 +61,7 @@ function TextStyleRows(props: {
 
 function ObjectProperties({ obj }: { obj: EditObject }) {
   const apply = useEditor((s) => s.apply)
+  const doc = useEditor((s) => s.doc)
   const set: Setter = (field, value) =>
     apply((d) => updateObjectFitted(d, obj.id, { [field]: value } as Partial<EditObject>), {
       coalesceKey: `prop:${obj.id}:${field}`
@@ -327,12 +194,15 @@ function ObjectProperties({ obj }: { obj: EditObject }) {
         </>
       )
       break
+    case 'field':
+      rows = doc ? <FieldObjectRows doc={doc} obj={obj} /> : null
+      break
   }
 
   return (
     <>
       {rows}
-      {isBoxObject(obj) && (
+      {(isBoxObject(obj) || obj.type === 'field') && (
         <>
           {hasRotation(obj) && (
             <Row label="Rotation">
@@ -424,10 +294,24 @@ function ToolDefaults({ tool, options }: { tool: ToolId; options: ToolOptions })
 export function PropertiesPanel() {
   const doc = useEditor((s) => s.doc)
   const selectedId = useEditor((s) => s.selectedObjectId)
+  const selectedElement = useEditor((s) => s.selectedElement)
   const tool = useEditor((s) => s.tool)
   const options = useEditor((s) => s.toolOptions)
   const apply = useEditor((s) => s.apply)
   const obj = findObject(doc, selectedId)
+
+  if (!obj && doc && selectedElement) {
+    const geom = resolveSelected(doc, selectedElement)
+    if (!geom) return null
+    const key = JSON.stringify(selectedElement)
+    if (geom.kind === 'content' && selectedElement.kind === 'content')
+      return <ContentProperties key={key} refEl={selectedElement} geom={geom} />
+    if (geom.kind === 'annotation' && selectedElement.kind === 'annotation')
+      return <AnnotationProperties key={key} doc={doc} refEl={selectedElement} geom={geom} />
+    if (geom.kind === 'field' && selectedElement.kind === 'field')
+      return <FieldProperties key={key} doc={doc} refEl={selectedElement} geom={geom} />
+    return null
+  }
 
   if (!obj) {
     if (!doc || !toolHasOptions(tool)) return null
@@ -443,7 +327,7 @@ export function PropertiesPanel() {
 
   return (
     <aside className="ed-props" data-testid="properties-panel" data-mode="object" data-object-type={obj.type} aria-label="Object properties">
-      <h3 className="ed-props-title">{TYPE_LABELS[obj.type]}</h3>
+      <h3 className="ed-props-title">{obj.type === 'field' ? FIELD_TYPE_LABELS[obj.fieldType] : TYPE_LABELS[obj.type]}</h3>
       <ObjectProperties key={obj.id} obj={obj} />
       <div className="ed-prop-actions">
         <button type="button" className="ed-action" data-testid="prop-front" title="Bring to front" aria-label="Bring to front" onClick={() => apply((d) => reorderObject(d, obj.id, 'front'))}>

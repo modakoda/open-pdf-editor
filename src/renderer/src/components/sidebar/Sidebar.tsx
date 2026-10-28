@@ -1,7 +1,9 @@
 /**
- * Page thumbnails: click / shift-click / ctrl(cmd)-click selection, drag & drop reordering
- * (and dropping PDF files to insert their pages), context menu with page operations, and
- * keyboard navigation (arrows, Delete).
+ * Left sidebar with two tabs:
+ * - Pages: thumbnails with click / shift-click / ctrl(cmd)-click selection, drag & drop
+ *   reordering (and dropping PDF files to insert their pages), a context menu with page
+ *   operations, and keyboard navigation (arrows, Delete).
+ * - Fields: every form field of the document (FieldsPanel.tsx).
  */
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Copy, FileOutput, FilePlus, RotateCcw, RotateCw, Trash } from 'lucide-react'
@@ -17,9 +19,11 @@ import {
 } from '@renderer/actions/pageActions'
 import { isMac } from '@renderer/actions/util'
 import { useNearViewport } from '@renderer/hooks/useNearViewport'
-import { getThumbnailUrl } from '@renderer/pdf/thumbnails'
-import { useEditor } from '@renderer/state/store'
+import { getPreviewPage, hasPreviewFailed, previewKeyFor } from '@renderer/pdf/previews'
+import { getPreviewThumbnailUrl, getThumbnailUrl } from '@renderer/pdf/thumbnails'
+import { useEditor, type SidebarTab } from '@renderer/state/store'
 import { Menu, type MenuEntry } from '../common/Menu'
+import { FieldsPanel, useFieldCount } from './FieldsPanel'
 import './sidebar.css'
 
 export const PAGE_DRAG_TYPE = 'application/x-ope-pages'
@@ -56,6 +60,46 @@ function hasType(dt: DataTransfer | null, type: string): boolean {
 }
 
 export function Sidebar() {
+  const tab = useEditor((s) => s.sidebarTab)
+  const setTab = useEditor((s) => s.setSidebarTab)
+  const pageCount = useEditor((s) => s.doc?.pages.length ?? 0)
+  const fieldCount = useFieldCount()
+  const tool = useEditor((s) => s.tool)
+  // Entering Prepare form (or a field tool) shows the field list.
+  const formTool = tool === 'form-design' || tool.startsWith('field-')
+  useEffect(() => {
+    if (formTool) useEditor.getState().setSidebarTab('fields')
+  }, [formTool])
+  const tabs: { id: SidebarTab; label: string; count: number }[] = [
+    { id: 'pages', label: 'Pages', count: pageCount },
+    { id: 'fields', label: 'Fields', count: fieldCount }
+  ]
+  return (
+    <aside className="sidebar" data-testid="sidebar" aria-label="Sidebar">
+      <div className="sidebar-tabs" role="tablist" aria-label="Sidebar">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            id={`sidebar-tab-${t.id}`}
+            className={`sidebar-tab${tab === t.id ? ' active' : ''}`}
+            data-testid={`sidebar-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`sidebar-panel-${t.id}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+            <span className="sidebar-count">{t.count}</span>
+          </button>
+        ))}
+      </div>
+      {tab === 'pages' ? <PagesPanel /> : <FieldsPanel />}
+    </aside>
+  )
+}
+
+function PagesPanel() {
   const doc = useEditor((s) => s.doc)
   const selectedPageIds = useEditor((s) => s.selectedPageIds)
   const currentPageId = useEditor((s) => s.currentPageId)
@@ -238,13 +282,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sidebar" data-testid="sidebar" aria-label="Pages">
-      <div className="sidebar-header">
-        <span>Pages</span>
-        <span className="sidebar-count">
-          {selectedPageIds.length > 1 ? `${selectedPageIds.length} of ${pages.length} selected` : pages.length}
-        </span>
-      </div>
+    <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-pages" aria-labelledby="sidebar-tab-pages">
       <div
         ref={listRef}
         className="thumb-list"
@@ -263,6 +301,7 @@ export function Sidebar() {
             page={page}
             index={i}
             source={page.source.kind === 'source' ? doc?.sources[page.source.sourceId] : undefined}
+            previewKey={doc ? previewKeyFor(doc, page) : null}
             selected={selected.has(page.id)}
             current={page.id === currentPageId}
             near={near.has(page.id)}
@@ -280,7 +319,7 @@ export function Sidebar() {
       {menu && (
         <Menu x={menu.x} y={menu.y} items={menuItems()} label="Page actions" testId="page-context-menu" onClose={() => setMenu(null)} />
       )}
-    </aside>
+    </div>
   )
 }
 
@@ -288,6 +327,7 @@ interface ThumbnailProps {
   page: PageEntry
   index: number
   source: SourceDocument | undefined
+  previewKey: string | null
   selected: boolean
   current: boolean
   near: boolean
@@ -304,6 +344,7 @@ const Thumbnail = memo(function Thumbnail({
   page,
   index,
   source,
+  previewKey,
   selected,
   current,
   near,
@@ -320,7 +361,7 @@ const Thumbnail = memo(function Thumbnail({
   const fit = Math.min(THUMB_MAX_W / size.width, THUMB_MAX_H / size.height)
   const w = Math.round(size.width * fit)
   const h = Math.round(size.height * fit)
-  const url = useThumbnail(source, page, rotation, w, near)
+  const url = useThumbnail(source, page, rotation, w, near, previewKey)
   const ref = useCallback((el: HTMLElement | null) => observe(page.id, el), [observe, page.id])
 
   return (
@@ -349,26 +390,51 @@ const Thumbnail = memo(function Thumbnail({
   )
 })
 
+/** Debounce for thumbnails of pages whose content is being edited. */
+const PREVIEW_THUMB_DELAY_MS = 250
+
 function useThumbnail(
   source: SourceDocument | undefined,
   page: PageEntry,
   rotation: number,
   cssWidth: number,
-  near: boolean
+  near: boolean,
+  previewKey: string | null
 ): string | null {
   const [url, setUrl] = useState<string | null>(null)
   const pageIndex = page.source.kind === 'source' ? page.source.pageIndex : -1
   const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1
   const pixelWidth = Math.round(cssWidth * dpr)
+  const pageId = page.id
   useEffect(() => {
     if (!source || pageIndex < 0 || !near) return
     let alive = true
-    getThumbnailUrl(source, pageIndex, rotation, pixelWidth)
-      .then((u) => alive && setUrl(u))
-      .catch((err) => console.warn('Thumbnail failed', err))
+    const fromSource = () => getThumbnailUrl(source, pageIndex, rotation, pixelWidth)
+    const load = (): Promise<string> => {
+      const doc = useEditor.getState().doc
+      if (!previewKey || !doc || hasPreviewFailed(previewKey)) return fromSource()
+      return getPreviewThumbnailUrl(pageId, previewKey, () => getPreviewPage(doc, pageId, previewKey), rotation, pixelWidth).catch(
+        (err) => {
+          if (err instanceof Error && err.name === 'RenderingCancelledException') throw err
+          return fromSource()
+        }
+      )
+    }
+    // The previous image stays visible until the new one is ready.
+    const timer = setTimeout(
+      () => {
+        load()
+          .then((u) => alive && setUrl(u))
+          .catch((err) => {
+            if (!(err instanceof Error && err.name === 'RenderingCancelledException')) console.warn('Thumbnail failed', err)
+          })
+      },
+      previewKey ? PREVIEW_THUMB_DELAY_MS : 0
+    )
     return () => {
       alive = false
+      clearTimeout(timer)
     }
-  }, [source, pageIndex, rotation, pixelWidth, near])
+  }, [source, pageIndex, rotation, pixelWidth, near, previewKey, pageId])
   return url
 }

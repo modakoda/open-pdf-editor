@@ -1,6 +1,7 @@
 /** Find in document: searches the text of every source page with pdf.js. */
 import { boxCenter } from '@core'
-import { findAll, getPageTextIndex, rectsForRange } from '@renderer/pdf/textSearch'
+import { getPreviewPage, hasPreviewFailed, previewKeyFor } from '@renderer/pdf/previews'
+import { findAll, getPageTextIndex, getPreviewTextIndex, rectsForRange, type PageTextIndex } from '@renderer/pdf/textSearch'
 import { useFind, type FindMatch } from '@renderer/state/find'
 import { editor } from './util'
 
@@ -44,7 +45,18 @@ export async function runFind(query: string): Promise<void> {
     const source = doc.sources[page.source.sourceId]
     if (!source) continue
     try {
-      const index = await getPageTextIndex(source, page.source.pageIndex)
+      // Edited pages are searched in their preview document (moved / retyped / deleted text).
+      const key = previewKeyFor(doc, page)
+      let index: PageTextIndex
+      if (key && !hasPreviewFailed(key)) {
+        try {
+          index = await getPreviewTextIndex(page.id, key, () => getPreviewPage(doc, page.id, key))
+        } catch {
+          index = await getPageTextIndex(source, page.source.pageIndex)
+        }
+      } else {
+        index = await getPageTextIndex(source, page.source.pageIndex)
+      }
       if (token !== searchToken) return
       for (const m of findAll(index.text, query)) {
         matches.push({ pageId: page.id, rects: rectsForRange(index, m.start, m.end) })

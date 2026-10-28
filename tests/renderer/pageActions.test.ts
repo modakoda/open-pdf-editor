@@ -6,6 +6,7 @@ vi.mock('@core', async (importOriginal) => ({
 }))
 vi.mock('@renderer/platform', async () => (await import('./support/fakePlatform')).platformModule)
 vi.mock('@renderer/pdf/pdfjs', async () => (await import('./support/fakePdfjs')).pdfjsModule)
+vi.mock('@renderer/editing', async () => (await import('./support/fakeEditing')).editingModule)
 
 import {
   deleteSelection,
@@ -22,6 +23,7 @@ import {
 } from '@renderer/actions/pageActions'
 import { closeDialog, useDialogs } from '@renderer/state/dialogs'
 import { coreOverrides as core, makeDoc, makeSource, resetFakeCore } from './support/fakeCore'
+import { deleteSelectionSpy } from './support/fakeEditing'
 import { fake, resetFakePlatform } from './support/fakePlatform'
 import { editor, loadDoc, resetStores } from './support/editor'
 
@@ -112,19 +114,21 @@ describe('page operations', () => {
     expect(editor().past).toHaveLength(0)
   })
 
-  it('delete-selection removes the selected object first, else selected pages', async () => {
+  it('delete-selection deletes the selected object via the editing layer, else selected pages', async () => {
     loadDoc(
       makeDoc(2, [
         { id: 'o1', pageId: 'p1', type: 'highlight', x: 0, y: 0, width: 5, height: 5, color: '#ffff00' }
       ])
     )
+    deleteSelectionSpy.mockClear()
     editor().selectObject('o1')
     editor().setSelectedPages(['p2'])
     await deleteSelection()
-    expect(core.removeObject).toHaveBeenCalledWith(expect.anything(), 'o1')
+    expect(deleteSelectionSpy).toHaveBeenCalledTimes(1)
     expect(pageIds()).toEqual(['p1', 'p2'])
     await deleteSelection()
     expect(pageIds()).toEqual(['p1'])
+    expect(deleteSelectionSpy).toHaveBeenCalledTimes(1)
     // Nothing selected: nothing happens.
     await deleteSelection()
     expect(pageIds()).toEqual(['p1'])

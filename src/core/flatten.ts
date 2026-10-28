@@ -22,7 +22,7 @@ import {
 import { isHiddenWidget } from './formFields'
 import { rectFromArray } from './pdf'
 
-type Matrix = [number, number, number, number, number, number]
+export type Matrix = [number, number, number, number, number, number]
 
 function numbers(arr: PDFObject | undefined, n: number): number[] | undefined {
   if (!(arr instanceof PDFArray) || arr.size() < n) return undefined
@@ -89,16 +89,34 @@ export function appearanceToRectMatrix(ctx: PDFContext, widget: PDFDict, apRef: 
   return [sx, 0, 0, sy, rect.x - minX * sx, rect.y - minY * sy]
 }
 
+/** What it takes to draw a widget's appearance onto page content (refs in the same document). */
+export interface WidgetBurn {
+  apRef: PDFRef
+  matrix: Matrix
+}
+
+/** How to burn a widget (undefined: hidden, or no usable appearance). */
+export function widgetBurn(doc: PDFDocument, widget: PDFDict): WidgetBurn | undefined {
+  if (isHiddenWidget(widget)) return undefined
+  const apRef = normalAppearanceRef(doc.context, widget)
+  if (!apRef) return undefined
+  const matrix = appearanceToRectMatrix(doc.context, widget, apRef)
+  return matrix ? { apRef, matrix } : undefined
+}
+
+/** Draw appearances onto a page's content. */
+export function drawBurns(page: PDFPage, burns: WidgetBurn[]): void {
+  for (const b of burns) {
+    const name = page.node.newXObject('FlatWidget', b.apRef)
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...b.matrix), drawObject(name), popGraphicsState())
+  }
+}
+
 /** Draw a widget's current appearance onto `page` (which may be another page than its own). */
 export function burnWidget(doc: PDFDocument, page: PDFPage, widget: PDFDict): boolean {
-  if (isHiddenWidget(widget)) return false
-  const apRef = normalAppearanceRef(doc.context, widget)
-  if (!apRef) return false
-  const m = appearanceToRectMatrix(doc.context, widget, apRef)
-  if (!m) return false
-  const name = page.node.newXObject('FlatWidget', apRef)
-  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...m), drawObject(name), popGraphicsState())
-  return true
+  const burn = widgetBurn(doc, widget)
+  if (burn) drawBurns(page, [burn])
+  return !!burn
 }
 
 const isWidget = (d: PDFObject | undefined): d is PDFDict =>
@@ -117,14 +135,17 @@ export function pageWidgets(doc: PDFDocument, page: PDFPage): PDFDict[] {
 }
 
 /**
- * Burn every widget (form fields and orphan widgets) into the content of its page, remove
- * the widget annotations and the AcroForm. Hidden / NoView widgets are dropped unseen.
+ * Remove every widget (form fields and orphan widgets) from the pages and the AcroForm, and
+ * return how to burn their appearances (drawn later with drawBurns, e.g. after content edits).
+ * Hidden / NoView widgets are dropped unseen. Nothing is drawn here.
  */
-export function flattenAllWidgets(doc: PDFDocument, pages: PDFPage[]): void {
+export function detachAllWidgets(doc: PDFDocument, pages: PDFPage[]): Map<PDFPage, WidgetBurn[]> {
+  const result = new Map<PDFPage, WidgetBurn[]>()
   for (const page of pages) {
     const annots = page.node.Annots()
     if (!annots) continue
     const kept: PDFObject[] = []
+    const burns: WidgetBurn[] = []
     let changed = false
     for (let i = 0; i < annots.size(); i++) {
       const entry = annots.get(i)
@@ -134,9 +155,17 @@ export function flattenAllWidgets(doc: PDFDocument, pages: PDFPage[]): void {
         continue
       }
       changed = true
-      burnWidget(doc, page, a)
+      const burn = widgetBurn(doc, a)
+      if (burn) burns.push(burn)
     }
     if (changed) page.node.set(PDFName.of('Annots'), doc.context.obj(kept))
+    if (burns.length) result.set(page, burns)
   }
   doc.catalog.delete(PDFName.of('AcroForm'))
+  return result
+}
+
+/** Burn every widget into the content of its page and remove the widgets and the AcroForm. */
+export function flattenAllWidgets(doc: PDFDocument, pages: PDFPage[]): void {
+  for (const [page, burns] of detachAllWidgets(doc, pages)) drawBurns(page, burns)
 }

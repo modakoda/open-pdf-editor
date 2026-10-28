@@ -15,6 +15,10 @@ export interface EditingState {
   cancelToken: number
   /** Last committed ink stroke; following strokes shortly after are merged into it. */
   lastInk: { id: string; pageId: string; at: number } | null
+  /** Existing text item being retyped inline (Edit content). */
+  editingContent: { pageId: string; itemId: string } | null
+  /** Radio group the next radio button created with the field tool joins (null = new group). */
+  radioJoinGroup: string | null
 
   startTextEdit(id: string): void
   stopTextEdit(id?: string): void
@@ -22,6 +26,8 @@ export interface EditingState {
   setSignatureOpen(open: boolean): void
   cancelGesture(): void
   setLastInk(lastInk: EditingState['lastInk']): void
+  setEditingContent(ref: EditingState['editingContent']): void
+  setRadioJoinGroup(name: string | null): void
   reset(): void
 }
 
@@ -31,6 +37,8 @@ export const useEditing = create<EditingState>()((set, get) => ({
   signatureOpen: false,
   cancelToken: 0,
   lastInk: null,
+  editingContent: null,
+  radioJoinGroup: null,
 
   startTextEdit(id) {
     set({ editingTextId: id, openNoteId: null })
@@ -50,7 +58,13 @@ export const useEditing = create<EditingState>()((set, get) => ({
   setLastInk(lastInk) {
     set({ lastInk })
   },
+  setEditingContent(editingContent) {
+    set({ editingContent })
+  },
+  setRadioJoinGroup(radioJoinGroup) {
+    set({ radioJoinGroup })
+  },
   reset() {
-    set({ editingTextId: null, openNoteId: null, signatureOpen: false, lastInk: null })
+    set({ editingTextId: null, openNoteId: null, signatureOpen: false, lastInk: null, editingContent: null, radioJoinGroup: null })
   }
 }))

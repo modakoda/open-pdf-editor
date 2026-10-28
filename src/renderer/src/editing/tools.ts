@@ -1,7 +1,15 @@
 /** Tool metadata (labels, icons, hotkeys) and tool activation shared by the palette and shortcuts. */
 import type { LucideIcon } from 'lucide-react'
 import {
+  ChevronDown,
+  CircleDot,
+  ClipboardPen,
   Eraser,
+  List,
+  PenTool,
+  SquareCheck,
+  SquareMousePointer,
+  TextCursorInput,
   Hand,
   Highlighter,
   Image,
@@ -9,7 +17,6 @@ import {
   MousePointer2,
   MoveUpRight,
   PenLine,
-  Replace,
   Signature,
   Square,
   Circle,
@@ -36,13 +43,18 @@ export const TOOLS: ToolDef[] = [
   { id: 'hand', label: 'Hand', hotkey: 'H', icon: Hand, hint: 'Pan the document' },
   { id: 'text', label: 'Add text', hotkey: 'T', icon: Type, hint: 'Click or drag a box to add text' },
   {
-    id: 'edit-text',
-    label: 'Edit existing text',
+    id: 'edit-content',
+    label: 'Edit content',
     hotkey: 'E',
-    icon: Replace,
-    hint:
-      'Click text on the page to replace it. The original text is covered by an editable copy on a ' +
-      'background box (it is hidden visually, not removed from the file).'
+    icon: SquareMousePointer,
+    hint: 'Select, move, resize or delete text, images and graphics that are already in the PDF; double-click text to retype it'
+  },
+  {
+    id: 'form-design',
+    label: 'Prepare form',
+    hotkey: 'F',
+    icon: ClipboardPen,
+    hint: 'Move, resize, rename or delete form fields and add new ones'
   },
   { id: 'image', label: 'Image', hotkey: 'I', icon: Image, hint: 'Pick a PNG/JPEG image, then click a page to place it' },
   { id: 'signature', label: 'Signature', hotkey: 'S', icon: Signature, hint: 'Draw or type a signature, then click a page to place it' },
@@ -62,8 +74,24 @@ export const TOOLS: ToolDef[] = [
   { id: 'note', label: 'Sticky note', hotkey: 'N', icon: StickyNote, hint: 'Click to add a comment' }
 ]
 
+/** Field creation tools, shown as a sub-toolbar while preparing a form (no hotkeys). */
+export const FIELD_TOOLS: ToolDef[] = [
+  { id: 'field-text', label: 'Text field', hotkey: '', icon: TextCursorInput, hint: 'Drag to add a text field' },
+  { id: 'field-checkbox', label: 'Checkbox', hotkey: '', icon: SquareCheck, hint: 'Click or drag to add a checkbox' },
+  {
+    id: 'field-radio',
+    label: 'Radio button',
+    hotkey: '',
+    icon: CircleDot,
+    hint: 'Click or drag to add a radio button (with a radio button selected: adds a choice to its group)'
+  },
+  { id: 'field-dropdown', label: 'Dropdown', hotkey: '', icon: ChevronDown, hint: 'Drag to add a dropdown list' },
+  { id: 'field-list', label: 'List box', hotkey: '', icon: List, hint: 'Drag to add a list box' },
+  { id: 'field-signature', label: 'Signature field', hotkey: '', icon: PenTool, hint: 'Drag to add a signature field' }
+]
+
 export const TOOL_BY_HOTKEY: Record<string, ToolId> = Object.fromEntries(
-  TOOLS.map((t) => [t.hotkey.toLowerCase(), t.id])
+  TOOLS.filter((t) => t.hotkey).map((t) => [t.hotkey.toLowerCase(), t.id])
 )
 
 /** Tools that return to 'select' after creating one object. */
@@ -134,5 +162,11 @@ export function activateTool(id: ToolId): void {
   }
   if (store.pendingImage) store.setPendingImage(null)
   editing.openNote(null)
+  editing.setEditingContent(null)
+  // A new radio button joins the group of the selected one.
+  if (id === 'field-radio') {
+    const sel = store.doc?.objects.find((o) => o.id === store.selectedObjectId)
+    editing.setRadioJoinGroup(sel?.type === 'field' && sel.fieldType === 'radio' ? sel.name : null)
+  }
   store.setTool(id)
 }

@@ -7,6 +7,7 @@ vi.mock('@core', async (importOriginal) => ({
 }))
 vi.mock('@renderer/platform', async () => (await import('./support/fakePlatform')).platformModule)
 vi.mock('@renderer/pdf/pdfjs', async () => (await import('./support/fakePdfjs')).pdfjsModule)
+vi.mock('@renderer/editing', async () => (await import('./support/fakeEditing')).editingModule)
 
 const spies = vi.hoisted(() => ({
   printDocument: vi.fn(async () => undefined)
@@ -21,6 +22,7 @@ import { isMac } from '@renderer/actions/util'
 import { useDialogs } from '@renderer/state/dialogs'
 import { useFind } from '@renderer/state/find'
 import { coreOverrides as core, makeDoc, resetFakeCore } from './support/fakeCore'
+import { deleteSelectionSpy } from './support/fakeEditing'
 import { emitMenu, fake, fakeState, listeners, resetFakePlatform } from './support/fakePlatform'
 import { editor, loadDoc, resetStores } from './support/editor'
 
@@ -113,13 +115,14 @@ describe('menu action routing', () => {
     await vi.waitFor(() => expect(editor().fileName).toBe('Untitled.pdf'))
   })
 
-  it('delete-selection removes the selected object', async () => {
+  it('delete-selection hands a selected object to the editing layer', async () => {
     loadDoc(makeDoc(1, [{ id: 'o1', pageId: 'p1', type: 'whiteout', x: 0, y: 0, width: 1, height: 1, color: '#ffffff' }]))
+    deleteSelectionSpy.mockClear()
     editor().selectObject('o1')
     runCommand('delete-selection', 'menu')
     await flush()
-    expect(core.removeObject).toHaveBeenCalledWith(expect.anything(), 'o1')
-    expect(editor().doc?.objects).toHaveLength(0)
+    expect(deleteSelectionSpy).toHaveBeenCalledTimes(1)
+    expect(core.deletePages).not.toHaveBeenCalled()
   })
 
   it('ignores document commands without a document', () => {

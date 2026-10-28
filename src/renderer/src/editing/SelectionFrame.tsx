@@ -1,5 +1,6 @@
 /** Selection outline and manipulation handles (constant screen size: laid out in CSS px). */
 import { isBoxObject, type EditObject } from '@core'
+import type { RotRect } from './elementGeometry'
 import { handleCursor, inkFrame, RESIZE_HANDLES, type ResizeHandle } from './manip'
 import { hasRotation, NOTE_SIZE } from './objects'
 
@@ -45,24 +46,44 @@ function Handles({ angle, rotate }: { angle: number; rotate: boolean }) {
   )
 }
 
+/** Frame with 8 resize handles (and optionally a rotation handle) around a rotated rectangle. */
+export function RectFrame({
+  rect,
+  scale,
+  pageRotation,
+  rotate,
+  outlineOnly,
+  testId = 'selection-frame'
+}: {
+  rect: RotRect
+  scale: number
+  pageRotation: number
+  rotate: boolean
+  outlineOnly?: boolean
+  testId?: string
+}) {
+  return (
+    <div
+      className="ed-frame"
+      data-testid={testId}
+      style={{
+        left: (rect.cx - rect.width / 2) * scale,
+        top: (rect.cy - rect.height / 2) * scale,
+        width: rect.width * scale,
+        height: rect.height * scale,
+        transform: rect.angle ? `rotate(${rect.angle}deg)` : undefined
+      }}
+    >
+      {!outlineOnly && <Handles angle={rect.angle + pageRotation} rotate={rotate} />}
+    </div>
+  )
+}
+
 export function SelectionFrame({ obj, scale, pageRotation, outlineOnly }: SelectionFrameProps) {
-  if (isBoxObject(obj)) {
+  if (isBoxObject(obj) || obj.type === 'field') {
     const rotation = hasRotation(obj) ? obj.rotation ?? 0 : 0
-    return (
-      <div
-        className="ed-frame"
-        data-testid="selection-frame"
-        style={{
-          left: obj.x * scale,
-          top: obj.y * scale,
-          width: obj.width * scale,
-          height: obj.height * scale,
-          transform: rotation ? `rotate(${rotation}deg)` : undefined
-        }}
-      >
-        {!outlineOnly && <Handles angle={rotation + pageRotation} rotate={hasRotation(obj)} />}
-      </div>
-    )
+    const rect = { cx: obj.x + obj.width / 2, cy: obj.y + obj.height / 2, width: obj.width, height: obj.height, angle: rotation }
+    return <RectFrame rect={rect} scale={scale} pageRotation={pageRotation} rotate={hasRotation(obj)} outlineOnly={outlineOnly} />
   }
   switch (obj.type) {
     case 'line': {
@@ -76,15 +97,8 @@ export function SelectionFrame({ obj, scale, pageRotation, outlineOnly }: Select
     }
     case 'ink': {
       const b = inkFrame(obj)
-      return (
-        <div
-          className="ed-frame"
-          data-testid="selection-frame"
-          style={{ left: b.x * scale, top: b.y * scale, width: b.width * scale, height: b.height * scale }}
-        >
-          {!outlineOnly && <Handles angle={pageRotation} rotate={false} />}
-        </div>
-      )
+      const rect = { cx: b.x + b.width / 2, cy: b.y + b.height / 2, width: b.width, height: b.height, angle: 0 }
+      return <RectFrame rect={rect} scale={scale} pageRotation={pageRotation} rotate={false} outlineOnly={outlineOnly} />
     }
     case 'note':
       return (

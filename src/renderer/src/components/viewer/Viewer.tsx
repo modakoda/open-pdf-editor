@@ -13,6 +13,7 @@ import { FilePlus } from 'lucide-react'
 import { insertBlankPageAt } from '@renderer/actions/pageActions'
 import { isEditableTarget } from '@renderer/actions/util'
 import { useNearViewport } from '@renderer/hooks/useNearViewport'
+import { previewKeyFor } from '@renderer/pdf/previews'
 import { useEditor, ZOOM_MAX, ZOOM_MIN } from '@renderer/state/store'
 import { PageView } from './PageView'
 import './viewer.css'
@@ -339,6 +340,7 @@ export function Viewer() {
               index={i}
               scale={scale}
               source={page.source.kind === 'source' ? doc.sources[page.source.sourceId] : undefined}
+              previewKey={previewKeyFor(doc, page)}
               near={near.has(page.id)}
               observe={observe}
               registerElement={registerElement}

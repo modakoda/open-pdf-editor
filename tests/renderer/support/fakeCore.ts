@@ -76,6 +76,7 @@ export const coreOverrides = {
     settings: { ...DEFAULT_SETTINGS, metadata: {} }
   })),
   exportDocument: vi.fn(async (_doc: EditorDocument, _opts?: { pageIds?: string[] }) => new Uint8Array([1, 2, 3])),
+  renderPagePreview: vi.fn(async (_doc: EditorDocument, pageId: string) => new TextEncoder().encode(`preview:${pageId}`)),
   splitDocument: vi.fn(async (_doc: EditorDocument, groups: string[][]) => groups.map((_, i) => new Uint8Array([i]))),
   rotatePages: vi.fn((doc: EditorDocument, ids: string[], delta: number): EditorDocument => ({
     ...doc,
@@ -133,4 +134,7 @@ export function resetFakeCore(): void {
   })
   coreOverrides.loadSource.mockImplementation(async (_bytes: Uint8Array, name: string) => makeSource(nextId('src'), 2, name))
   coreOverrides.exportDocument.mockImplementation(async () => new Uint8Array([1, 2, 3]))
+  coreOverrides.renderPagePreview.mockImplementation(async (_doc: EditorDocument, pageId: string) =>
+    new TextEncoder().encode(`preview:${pageId}`)
+  )
 }

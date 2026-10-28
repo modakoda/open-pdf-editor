@@ -1,5 +1,5 @@
 /** Derived values from the editor store. Pure functions so they are easy to test. */
-import type { DocumentMetadata, EditorDocument, PageEntry } from '@core'
+import { getEffectiveFormFields, type DocumentMetadata, type EditObject, type EditorDocument, type PageEntry } from '@core'
 import type { EditorState } from './store'
 
 /**
@@ -66,4 +66,71 @@ export function formatWindowTitle(name: string, dirty: boolean, hasDocument: boo
 
 export function windowTitle(s: Pick<EditorState, 'doc' | 'fileName' | 'dirty'>): string {
   return formatWindowTitle(documentTitle(s), s.dirty, !!s.doc)
+}
+
+const OBJECT_LABELS: Record<EditObject['type'], string> = {
+  text: 'Text',
+  image: 'Image',
+  rect: 'Rectangle',
+  ellipse: 'Ellipse',
+  highlight: 'Highlight',
+  whiteout: 'Whiteout',
+  line: 'Line',
+  ink: 'Drawing',
+  note: 'Note',
+  field: 'Field'
+}
+
+const ANNOTATION_LABELS: Record<string, string> = {
+  Text: 'Comment',
+  FreeText: 'Text box',
+  Highlight: 'Highlight',
+  Underline: 'Underline',
+  StrikeOut: 'Strikeout',
+  Squiggly: 'Underline',
+  Link: 'Link',
+  Ink: 'Drawing',
+  Stamp: 'Stamp',
+  Square: 'Rectangle',
+  Circle: 'Ellipse',
+  Line: 'Line',
+  Polygon: 'Polygon',
+  PolyLine: 'Polyline',
+  FileAttachment: 'Attachment'
+}
+
+/** Status-bar description of the selected object / existing element, e.g. "Text selected". */
+export function selectionLabel(s: Pick<EditorState, 'doc' | 'selectedObjectId' | 'selectedElement'>): string | null {
+  const { doc } = s
+  if (!doc) return null
+  if (s.selectedObjectId) {
+    const obj = doc.objects.find((o) => o.id === s.selectedObjectId)
+    if (!obj) return null
+    if (obj.type === 'field') return `Field “${obj.name}” selected`
+    if (obj.type === 'line' && obj.arrowEnd) return 'Arrow selected'
+    return `${OBJECT_LABELS[obj.type] ?? 'Object'} selected`
+  }
+  const el = s.selectedElement
+  if (!el) return null
+  switch (el.kind) {
+    case 'content':
+      return 'Page content selected'
+    case 'annotation': {
+      const page = doc.pages.find((p) => p.id === el.pageId)
+      const info =
+        page?.source.kind === 'source'
+          ? doc.sources[page.source.sourceId]?.pageInfo?.[page.source.pageIndex]?.annotations?.find((a) => a.id === el.annotId)
+          : undefined
+      return `${(info && ANNOTATION_LABELS[info.subtype]) || 'Annotation'} selected`
+    }
+    case 'field': {
+      let name = el.fieldName
+      try {
+        name = getEffectiveFormFields(doc, el.sourceId).find((f) => f.originalName === el.fieldName)?.name ?? name
+      } catch {
+        /* keep the original name */
+      }
+      return `Field “${name}” selected`
+    }
+  }
 }

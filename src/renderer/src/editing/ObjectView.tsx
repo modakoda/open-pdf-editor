@@ -1,7 +1,23 @@
 /** Rendering of a single EditObject inside a page-space layer (positions are points × scale). */
 import { memo, useMemo, type CSSProperties } from 'react'
 import { StickyNote } from 'lucide-react'
-import { arrowHead, type EditObject, type ImageObject, type InkObject, type LineObject, type NoteObject, type PageEntry, type TextObject } from '@core'
+import {
+  arrowHead,
+  updateObject,
+  type EditObject,
+  type EditorDocument,
+  type FieldObject,
+  type FormValue,
+  type ImageObject,
+  type InkObject,
+  type LineObject,
+  type NoteObject,
+  type PageEntry,
+  type TextObject
+} from '@core'
+import { useEditor } from '@renderer/state/store'
+import { FieldInput, type FieldMode } from './FormFieldsLayer'
+import { FIELD_TYPE_LABELS } from './fields'
 import { useImageUrl } from './images'
 import { NOTE_SIZE } from './objects'
 import { fontStack, safeLayout } from './textLayout'
@@ -17,6 +33,8 @@ export interface ObjectViewProps {
   ghost?: boolean
   /** Displayed page rotation; sticky-note icons stay upright like in PDF viewers (NoRotate). */
   pageRotation?: number
+  /** How FieldObjects are shown: inputs (fill), labelled boxes (design) or inert inputs. */
+  fieldMode?: FieldMode
 }
 
 function boxStyle(obj: { x: number; y: number; width: number; height: number; rotation?: number }, scale: number): CSSProperties {
@@ -181,9 +199,68 @@ function NoteView({ obj, scale, selected, ghost, pageRotation }: ObjectViewProps
   )
 }
 
+/** Set a FieldObject's value; radio buttons of one group (same name) share it. */
+export function setFieldObjectValue(doc: EditorDocument, obj: FieldObject, value: FormValue): EditorDocument {
+  if (obj.fieldType !== 'radio') return updateObject(doc, obj.id, { value })
+  return doc.objects
+    .filter((o) => o.type === 'field' && o.fieldType === 'radio' && o.name === obj.name)
+    .reduce((d, o) => updateObject(d, o.id, { value }), doc)
+}
+
+function FieldObjectView({ obj, scale, selected, ghost, fieldMode = 'static' }: ObjectViewProps & { obj: FieldObject }) {
+  const apply = useEditor((s) => s.apply)
+  const showInput = !ghost && fieldMode !== 'design' && obj.fieldType !== 'signature'
+  const style = { ...boxStyle(obj, scale), opacity: obj.opacity ?? 1 }
+  if (!showInput) {
+    return (
+      <div
+        className={`ed-object ed-field-object ed-field-box ed-field-box-${obj.fieldType}${obj.width * scale < 48 ? ' ed-field-box-small' : ''}`}
+        {...attrs(obj, selected, ghost)}
+        data-field-name={obj.name}
+        data-mode={fieldMode}
+        title={`${FIELD_TYPE_LABELS[obj.fieldType]}: ${obj.name}`}
+        style={style}
+      >
+        <span className="ed-field-box-label">{fieldMode === 'design' || ghost ? obj.name : 'Signature'}</span>
+      </div>
+    )
+  }
+  return (
+    <div
+      className="ed-object ed-field-object"
+      {...attrs(obj, selected, ghost)}
+      data-field-name={obj.name}
+      data-mode={fieldMode}
+      data-interactive={fieldMode === 'fill' ? 'true' : 'false'}
+      style={style}
+    >
+      <FieldInput
+        type={obj.fieldType}
+        name={obj.name}
+        box={{ x: 0, y: 0, width: obj.width, height: obj.height }}
+        scale={scale}
+        value={obj.value}
+        options={obj.options}
+        readOnly={!!obj.readOnly}
+        required={obj.required}
+        multiline={obj.multiline}
+        maxLength={obj.maxLength}
+        fontSize={obj.fontSize}
+        onValue={obj.fieldType === 'checkbox' ? obj.exportValue ?? 'Yes' : obj.exportValue}
+        group={`field-object:${obj.name}`}
+        interactive={fieldMode === 'fill'}
+        attrs={{ 'data-object-id': obj.id }}
+        onChange={(v) => apply((d) => setFieldObjectValue(d, obj, v), { coalesceKey: `field-object:${obj.name}` })}
+      />
+    </div>
+  )
+}
+
 export const ObjectView = memo(function ObjectView(props: ObjectViewProps) {
   const { obj, scale, selected, ghost } = props
   switch (obj.type) {
+    case 'field':
+      return <FieldObjectView {...props} obj={obj} />
     case 'text':
       return <TextView {...props} obj={obj} />
     case 'image':

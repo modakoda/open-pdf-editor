@@ -1,5 +1,10 @@
 import {
+  PDFArray,
   PDFButton,
+  PDFDict,
+  PDFHexString,
+  PDFNumber,
+  PDFString,
   PDFCheckBox,
   PDFDropdown,
   PDFName,
@@ -14,11 +19,19 @@ import {
   type PDFWidgetAnnotation
 } from '@cantoo/pdf-lib'
 import { createId } from './ids'
+import { colorFromComponents, objectMark, readPageAnnotations } from './annotations'
+import { readPageObjects } from './persist'
+import { restoredObjectsFor } from './operations'
 import { PAGE_SIZES } from './model'
 import { allPermissionsGranted } from './security'
 import type {
+  Box,
   DocumentMetadata,
+  EditObject,
   EditorDocument,
+  FieldObject,
+  FormValue,
+  NoteObject,
   EncryptionSettings,
   FormFieldInfo,
   FormFieldWidget,
@@ -139,7 +152,21 @@ function describeField(
   }
 }
 
-function readFormFields(doc: PDFDocument, pages: PDFPage[], boxes: PdfBox[]): FormFieldInfo[] {
+/** Current state of a field created for an EditObject, keyed by object id (one per widget). */
+interface LiveFieldState {
+  name: string
+  value: FormValue
+  pageIndex?: number
+  box?: Box
+}
+
+function readFormFields(
+  doc: PDFDocument,
+  pages: PDFPage[],
+  boxes: PdfBox[],
+  restoredIds: Set<string>,
+  live: Map<string, LiveFieldState>
+): FormFieldInfo[] {
   // Do not create an AcroForm where there is none.
   if (!safe(() => doc.catalog.lookup(PDFName.of('AcroForm')))) return []
   const form = safe(() => doc.getForm())
@@ -149,9 +176,103 @@ function readFormFields(doc: PDFDocument, pages: PDFPage[], boxes: PdfBox[]): Fo
   const result: FormFieldInfo[] = []
   for (const field of fields) {
     const info = safe(() => describeField(field, findPage, boxes))
-    if (info) result.push(info)
+    if (!info) continue
+    const widgets = safe(() => field.acroField.getWidgets()) ?? []
+    const marks = widgets.map((w) => objectMark(w.dict))
+    if (restoredIds.size && widgets.length && marks.every((m) => m && restoredIds.has(m))) {
+      // Created for a restored FieldObject: reported as that object, not as a form field.
+      const refs = widgetRefs(field)
+      widgets.forEach((w, i) => {
+        const pageIndex = findPage(w, refs[i])
+        const rect = rectFromArray(safe(() => w.Rect()))
+        const state: LiveFieldState = { name: info.name, value: info.value }
+        if (pageIndex !== undefined && rect) {
+          state.pageIndex = pageIndex
+          state.box = toPageBox(rect, boxes[pageIndex])
+        }
+        live.set(marks[i]!, state)
+      })
+      continue
+    }
+    result.push(info)
   }
   return result
+}
+
+function toPageBox(r: PdfBox, vb: PdfBox): Box {
+  return { x: r.x - vb.x, y: vb.y + vb.height - (r.y + r.height), width: r.width, height: r.height }
+}
+
+/** Objects stored by an earlier export, per page; pages whose data is unusable are skipped. */
+function readRestoredObjects(doc: PDFDocument, pages: PDFPage[]): (EditObject[] | undefined)[] {
+  const used = new Set<string>()
+  return pages.map((p) => {
+    const objects = readPageObjects(doc, p)
+    if (!objects || objects.some((o) => used.has(o.id))) return undefined
+    for (const o of objects) used.add(o.id)
+    return objects
+  })
+}
+
+/** Update restored notes / fields with their current state in the file (edited elsewhere?). */
+function refreshRestored(
+  doc: PDFDocument,
+  page: PDFPage,
+  vb: PdfBox,
+  pageIndex: number,
+  objects: EditObject[],
+  live: Map<string, LiveFieldState>
+): EditObject[] {
+  const notes = new Map<string, PDFDict>()
+  const annots = safe(() => page.node.Annots())
+  if (annots) {
+    for (let k = 0; k < annots.size(); k++) {
+      const d = doc.context.lookup(annots.get(k))
+      const mark = d instanceof PDFDict ? objectMark(d) : undefined
+      if (mark && d instanceof PDFDict) notes.set(mark, d)
+    }
+  }
+  return objects.map((o) => {
+    if (o.type === 'note') {
+      const d = notes.get(o.id)
+      if (!d) return o
+      const rect = rectFromArray(d.lookup(PDFName.of('Rect')))
+      const contents = d.lookup(PDFName.of('Contents'))
+      const author = d.lookup(PDFName.of('T'))
+      const color = colorFromComponents(numbersOf(d.lookup(PDFName.of('C'))))
+      const next: NoteObject = { ...o }
+      if (rect) {
+        const b = toPageBox(rect, vb)
+        next.x = b.x
+        next.y = b.y
+      }
+      if (contents instanceof PDFString || contents instanceof PDFHexString) next.text = contents.decodeText()
+      if (author instanceof PDFString || author instanceof PDFHexString) next.author = author.decodeText()
+      if (color) next.color = color
+      return next
+    }
+    if (o.type === 'field') {
+      const state = live.get(o.id)
+      if (!state) return o
+      const next: FieldObject = { ...o, name: state.name }
+      if (o.fieldType === 'checkbox') next.value = state.value === true || (typeof state.value === 'string' && state.value !== '')
+      else next.value = state.value
+      if (state.box && state.pageIndex === pageIndex) Object.assign(next, state.box)
+      return next
+    }
+    return o
+  })
+}
+
+function numbersOf(o: unknown): number[] | undefined {
+  if (!(o instanceof PDFArray)) return undefined
+  const out: number[] = []
+  for (let i = 0; i < o.size(); i++) {
+    const v = o.lookup(i)
+    if (!(v instanceof PDFNumber)) return undefined
+    out.push(v.asNumber())
+  }
+  return out
 }
 
 /**
@@ -163,11 +284,25 @@ export async function loadSource(bytes: Uint8Array, name: string, options?: Load
   const { doc } = opened
   const pages = doc.getPages()
   const boxes = pages.map(visibleBox)
-  const pageInfo: SourcePageInfo[] = pages.map((p, i) => ({
-    width: boxes[i].width,
-    height: boxes[i].height,
-    rotation: pageRotation(p)
-  }))
+  const restored = readRestoredObjects(doc, pages)
+  const restoredIds = new Set(restored.flatMap((objs) => (objs ?? []).map((o) => o.id)))
+  const live = new Map<string, LiveFieldState>()
+  const formFields = readFormFields(doc, pages, boxes, restoredIds, live)
+  const pageInfo: SourcePageInfo[] = pages.map((p, i) => {
+    const objects = restored[i]
+    const ids = objects ? new Set(objects.map((o) => o.id)) : undefined
+    const info: SourcePageInfo = {
+      width: boxes[i].width,
+      height: boxes[i].height,
+      rotation: pageRotation(p),
+      annotations: safe(() => readPageAnnotations(doc.context, p, boxes[i], ids)) ?? []
+    }
+    if (objects) {
+      info.restoredObjectIds = objects.map((o) => o.id)
+      info.restoredObjects = refreshRestored(doc, p, boxes[i], i, objects, live)
+    }
+    return info
+  })
   const source: SourceDocument = {
     id: createId('src'),
     name,
@@ -175,7 +310,7 @@ export async function loadSource(bytes: Uint8Array, name: string, options?: Load
     isEncrypted: opened.isEncrypted,
     pageCount: pages.length,
     metadata: readMetadata(doc),
-    formFields: readFormFields(doc, pages, boxes),
+    formFields,
     pageInfo
   }
   if (opened.isEncrypted) {
@@ -225,11 +360,12 @@ function pageEntriesFor(source: SourceDocument): PageEntry[] {
 
 /** EditorDocument for an already loaded source (one PageEntry per page). */
 export function documentFromSource(source: SourceDocument): EditorDocument {
+  const pages = pageEntriesFor(source)
   return {
     primarySourceId: source.id,
     sources: { [source.id]: source },
-    pages: pageEntriesFor(source),
-    objects: [],
+    pages,
+    objects: restoredObjectsFor(source, pages, new Set()),
     formValues: {},
     settings: {
       metadata: {},

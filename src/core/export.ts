@@ -4,26 +4,35 @@ import {
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFNull,
   PDFObjectCopier,
   PDFPage,
   PDFPageLeaf,
   PDFPageTree,
   PDFRef,
+  PDFStream,
+  PDFString,
   degrees,
   type PDFObject
 } from '@cantoo/pdf-lib'
 import { displayRotation } from './geometry'
-import type { EditObject, EditorDocument, PageEntry, Rotation, SourceDocument } from './model'
+import type { ContentItem, EditObject, EditorDocument, FieldObject, PageEntry, Rotation, SourceDocument } from './model'
+import { applyContentEdits, listContentItems, stripMarkedContent, type ContentEditHelpers } from './content'
+import { applyAnnotationEdits, removeMarkedAnnotations, tagAnnotations, untagAnnotations } from './annotations'
+import { applyFieldEdits, applyWidgetEditsToPage, createNewFields, removeRestoredFields } from './fieldEdits'
+import { clearPageObjects, writePageObjects } from './persist'
 import { collectGarbage, openPdfLib, visibleBox } from './pdf'
 import { EmbedCache } from './exportFonts'
 import {
+  fieldsByName,
+  detachForm,
   fillForm,
   flattenForm,
   hasAcroForm,
   pruneFieldsOnRemovedPages,
   refreshAppearancesForBurning
 } from './exportForms'
-import { burnWidget, flattenAllWidgets, pageWidgets } from './flatten'
+import { detachAllWidgets, drawBurns, pageWidgets, widgetBurn, type WidgetBurn } from './flatten'
 import { drawObject, drawPageNumber, drawWatermark, isolateExistingContent, type DrawTarget } from './exportDraw'
 import { collectRemoved, deleteRemovedAnnotations, pruneDestinations, pruneStructureTree } from './prune'
 import {
@@ -55,11 +64,13 @@ export interface ExportOptions {
 /** Value written to /Producer unless the user overrides it. */
 export const PRODUCER = 'Open PDF Editor'
 
-type PlanItem =
-  | { entry: PageEntry; kind: 'primary'; pageIndex: number; page?: PDFPage }
-  | { entry: PageEntry; kind: 'copy'; sourceId: string; pageIndex: number; page?: PDFPage }
-  | { entry: PageEntry; kind: 'clone'; of: PlanItem; page?: PDFPage }
-  | { entry: PageEntry; kind: 'blank'; page?: PDFPage }
+/** `burns`: widget appearances to draw into the page content after content edits. */
+type PlanItem = (
+  | { entry: PageEntry; kind: 'primary'; pageIndex: number }
+  | { entry: PageEntry; kind: 'copy'; sourceId: string; pageIndex: number }
+  | { entry: PageEntry; kind: 'clone'; of: PlanItem }
+  | { entry: PageEntry; kind: 'blank' }
+) & { page?: PDFPage; burns?: WidgetBurn[] }
 
 const N = (s: string) => PDFName.of(s)
 const INHERITABLE = ['Resources', 'MediaBox', 'CropBox', 'Rotate'].map(N)
@@ -70,16 +81,40 @@ const INHERITABLE = ['Resources', 'MediaBox', 'CropBox', 'Rotate'].map(N)
  * internal destinations removed (they would refer to the other file), and annotation
  * back-references removed so copying a page does not drag in the rest of the file.
  */
-async function loadSourceForCopy(doc: EditorDocument, source: SourceDocument, cache: EmbedCache): Promise<PDFDocument> {
+async function loadSourceForCopy(
+  doc: EditorDocument,
+  source: SourceDocument,
+  cache: EmbedCache
+): Promise<{ src: PDFDocument; burns: Map<number, WidgetBurn[]> }> {
   const { doc: src } = await openPdfLib(source.bytes, source.password, { identify: false })
   const pages = src.getPages()
+  const restored = new Set<string>()
+  pages.forEach((page, i) => {
+    tagAnnotations(src.context, page)
+    const ids = restoredIdsOf(source, i)
+    if (!ids.size) return
+    ids.forEach((id) => restored.add(id))
+    removeMarkedAnnotations(src.context, page, ids)
+    stripMarkedContent(src, page, ids)
+    afterContentRewrite(page)
+  })
+  let detached: Map<PDFPage, WidgetBurn[]>
   if (hasAcroForm(src)) {
     const form = src.getForm()
-    await fillForm(src, form, doc.formValues[source.id], cache)
-    await flattenForm(src, form, pages, cache)
+    const byName = fieldsByName(form)
+    removeRestoredFields(form, byName.values(), restored, pages)
+    await applyFieldEdits(src, form, byName, doc.fieldEdits?.[source.id], pages, cache, { renames: false })
+    await fillForm(src, form, doc.formValues[source.id], cache, byName)
+    detached = await detachForm(src, form, pages, cache)
   } else {
-    flattenAllWidgets(src, pages) // orphan widgets
+    detached = detachAllWidgets(src, pages) // orphan widgets
   }
+  // The widgets are burned in only after content edits (which need the original content).
+  const burns = new Map<number, WidgetBurn[]>()
+  pages.forEach((page, i) => {
+    const b = detached.get(page)
+    if (b) burns.set(i, b)
+  })
   for (const page of pages) {
     page.node.delete(N('B'))
     page.node.delete(N('StructParents'))
@@ -96,7 +131,41 @@ async function loadSourceForCopy(doc: EditorDocument, source: SourceDocument, ca
       if (action instanceof PDFDict && action.lookup(N('S')) === N('GoTo')) annot.delete(N('A'))
     }
   }
-  return src
+  return { src, burns }
+}
+
+/** Ids of EditObjects restored from a source page (their old drawings must be removed). */
+function restoredIdsOf(source: SourceDocument | undefined, pageIndex: number): Set<string> {
+  return new Set(source?.pageInfo?.[pageIndex]?.restoredObjectIds ?? [])
+}
+
+/**
+ * After the content library rewrote a page's /Contents: make pdf-lib append to a fresh
+ * content stream, keep /Contents an array, and isolate the content again before drawing.
+ */
+function afterContentRewrite(page: PDFPage): void {
+  const wrapper = page as unknown as { contentStream?: unknown; contentStreamRef?: unknown }
+  wrapper.contentStream = undefined
+  wrapper.contentStreamRef = undefined
+  const contents = page.node.get(N('Contents'))
+  if (contents instanceof PDFRef && page.doc.context.lookup(contents) instanceof PDFStream) {
+    page.node.set(N('Contents'), page.doc.context.obj([contents]))
+  }
+  ;(page.node as unknown as { normalized?: boolean }).normalized = false
+}
+
+/** Give a page its own copies of its content streams (it shares them with a repeat). */
+function unshareContents(out: PDFDocument, page: PDFPage): void {
+  const ctx = out.context
+  const contents = page.node.get(N('Contents'))
+  const resolved = ctx.lookup(contents)
+  const refs: PDFObject[] = resolved instanceof PDFArray ? resolved.asArray() : contents ? [contents] : []
+  const copies = refs.map((r) => {
+    const stream = ctx.lookup(r)
+    return stream instanceof PDFStream ? ctx.register(stream.clone(ctx)) : r
+  })
+  page.node.set(N('Contents'), ctx.obj(copies))
+  afterContentRewrite(page)
 }
 
 function numberArray(o: PDFObject | undefined): PDFRef[] {
@@ -112,7 +181,12 @@ function numberArray(o: PDFObject | undefined): PDFRef[] {
  * Copy pages of another document, then register the optional content groups they use in
  * the output's /OCProperties (with their default ON/OFF state) so hidden layers stay hidden.
  */
-async function copyForeignPages(out: PDFDocument, src: PDFDocument, indices: number[]): Promise<PDFPage[]> {
+async function copyForeignPages(
+  out: PDFDocument,
+  src: PDFDocument,
+  indices: number[],
+  burns: Map<number, WidgetBurn[]>
+): Promise<{ pages: PDFPage[]; burns: (WidgetBurn[] | undefined)[] }> {
   await src.flush()
   const copier = PDFObjectCopier.for(src.context, out.context)
   const srcPages = src.getPages()
@@ -120,11 +194,23 @@ async function copyForeignPages(out: PDFDocument, src: PDFDocument, indices: num
     const copy = copier.copy(srcPages[i].node) as PDFPageLeaf
     return PDFPage.of(copy, out.context.register(copy), out)
   })
+  // Appearance streams of the detached widgets come along with the same copier.
+  const copiedBurns = indices.map((i) =>
+    burns.get(i)?.flatMap((b) => {
+      const apRef = copier.copy(b.apRef)
+      return apRef instanceof PDFRef ? [{ apRef, matrix: b.matrix }] : []
+    })
+  )
+  registerCopiedOptionalContent(out, src, copier)
+  return { pages, burns: copiedBurns }
+}
 
+/** Register the optional content groups used by copied pages, keeping their default state. */
+function registerCopiedOptionalContent(out: PDFDocument, src: PDFDocument, copier: PDFObjectCopier): void {
   const ocProps = src.catalog.lookup(N('OCProperties'))
-  if (!(ocProps instanceof PDFDict)) return pages
+  if (!(ocProps instanceof PDFDict)) return
   const srcGroups = numberArray(ocProps.lookup(N('OCGs')))
-  if (!srcGroups.length) return pages
+  if (!srcGroups.length) return
   const config = ocProps.lookup(N('D'))
   const cfg = config instanceof PDFDict ? config : undefined
   const baseOff = cfg?.lookup(N('BaseState')) === N('OFF')
@@ -132,7 +218,7 @@ async function copyForeignPages(out: PDFDocument, src: PDFDocument, indices: num
   const on = new Set(numberArray(cfg?.lookup(N('ON'))))
   const traversed = (copier as unknown as { traversedObjects?: Map<PDFObject, PDFObject> }).traversedObjects
   const used = srcGroups.filter((g) => !traversed || traversed.has(g))
-  if (!used.length) return pages
+  if (!used.length) return
 
   let outProps = out.catalog.lookup(N('OCProperties'))
   if (!(outProps instanceof PDFDict)) {
@@ -170,15 +256,14 @@ async function copyForeignPages(out: PDFDocument, src: PDFDocument, indices: num
     const order = outD.lookup(N('Order'))
     if (order instanceof PDFArray) order.push(mapped)
   }
-  return pages
 }
 
 /**
  * A second output page showing the same page: shares content streams and resources, has its
  * own /Contents array and copies of the annotations. Widgets are burned in (only one page
- * may own a form field), unless `burnWidgets` is false.
+ * may own a form field); see PlanItem.burns.
  */
-function clonePage(out: PDFDocument, original: PDFPage, burnWidgets: boolean): PDFPage {
+function clonePage(out: PDFDocument, original: PDFPage): PDFPage {
   const ctx = out.context
   const leaf = original.node
   const clone = leaf.clone() as PDFPageLeaf
@@ -200,10 +285,9 @@ function clonePage(out: PDFDocument, original: PDFPage, burnWidgets: boolean): P
       const r = annots.get(i)
       const a = ctx.lookup(r)
       if (!(a instanceof PDFDict)) continue
-      if (a.lookup(N('Subtype')) === N('Widget')) {
-        if (burnWidgets) burnWidget(out, page, a)
-        continue
-      }
+      // Widgets are not copied (a field has one set of widgets); their appearances are
+      // burned into the copy later (PlanItem.burns).
+      if (a.lookup(N('Subtype')) === N('Widget')) continue
       const copy = a.clone()
       copy.set(N('P'), ref)
       copy.delete(N('StructParent'))
@@ -285,11 +369,6 @@ function selectPages(doc: EditorDocument, pageIds?: string[]): PageEntry[] {
   return doc.pages.filter((p) => ids.has(p.id))
 }
 
-/** pdf-lib caches the content stream it appends to; make later drawing use a new one. */
-function detachCachedContentStream(page: PDFPage): void {
-  if ((page as unknown as { contentStream?: unknown }).contentStream) page.resetPosition()
-}
-
 /**
  * Produce the final PDF bytes for a document:
  * - preserves the primary source's structure (forms, links, annotations, outline) where possible,
@@ -312,6 +391,8 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   const opened = primary ? await openPdfLib(primary.bytes, primary.password, { identify: false }) : undefined
   const out = opened ? opened.doc : await PDFDocument.create({ updateMetadata: false })
   const origPages = primary ? out.getPages() : []
+  const pageIds = new Set(entries.map((e) => e.id))
+  const fieldObjects = doc.objects.filter((o): o is FieldObject => o.type === 'field' && pageIds.has(o.pageId))
 
   // 1. Plan where each output page comes from.
   const firstUse = new Map<string, PlanItem>()
@@ -334,24 +415,41 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   const removedPages = removedIndices.map((i) => origPages[i])
   const keptPages = [...reused].map((i) => origPages[i])
 
-  // 2. Primary form: drop fields of removed pages, fill values, flatten.
+  // 2. Primary pages: tag annotations (for annotation edits), drop what an earlier export
+  //    created for restored EditObjects (they are drawn again below).
+  const restored = new Set<string>()
+  origPages.forEach((page, i) => {
+    tagAnnotations(out.context, page)
+    const ids = restoredIdsOf(primary, i)
+    if (!ids.size) return
+    ids.forEach((id) => restored.add(id))
+    removeMarkedAnnotations(out.context, page, ids)
+    stripMarkedContent(out, page, ids)
+    afterContentRewrite(page)
+  })
+
+  // 3. Primary form: restored fields, removed pages, structural edits, values.
   const primaryClones = plan.some(
     (i) => i.kind === 'clone' && i.of.kind === 'primary' && pageWidgets(out, origPages[i.of.pageIndex]).length > 0
   )
   if (primary && hasAcroForm(out)) {
     const values = doc.formValues[primary.id]
+    const edits = doc.fieldEdits?.[primary.id]
     const hasValues = !!values && Object.keys(values).length > 0
-    if (removedIndices.length || hasValues || doc.settings.flattenForms || primaryClones) {
+    const hasEdits = !!edits && Object.keys(edits).length > 0
+    if (removedIndices.length || hasValues || hasEdits || restored.size || doc.settings.flattenForms || primaryClones || fieldObjects.length) {
       const form = out.getForm()
+      const byName = fieldsByName(form)
+      removeRestoredFields(form, byName.values(), restored, origPages)
       pruneFieldsOnRemovedPages(out, form, origPages, new Set(removedIndices))
-      await fillForm(out, form, values, cache)
-      if (doc.settings.flattenForms) await flattenForm(out, form, keptPages, cache)
-      else if (primaryClones) await refreshAppearancesForBurning(out, form, cache)
+      await applyFieldEdits(out, form, byName, edits, origPages, cache)
+      await fillForm(out, form, values, cache, byName)
+      if (primaryClones) await refreshAppearancesForBurning(out, form, cache)
     }
   }
   const removed = collectRemoved(out.context, removedPages, keptPages)
 
-  // 3. Copy pages from other sources (each distinct page once, one copier per source so
+  // 4. Copy pages from other sources (each distinct page once, one copier per source so
   //    pages of the same file share their resources).
   const bySource = new Map<string, Extract<PlanItem, { kind: 'copy' }>[]>()
   for (const item of plan) {
@@ -361,16 +459,20 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     bySource.set(item.sourceId, list)
   }
   for (const [sourceId, items] of bySource) {
-    const src = await loadSourceForCopy(doc, doc.sources[sourceId], cache)
+    const { src, burns } = await loadSourceForCopy(doc, doc.sources[sourceId], cache)
     const copied = await copyForeignPages(
       out,
       src,
-      items.map((i) => i.pageIndex)
+      items.map((i) => i.pageIndex),
+      burns
     )
-    items.forEach((item, i) => (item.page = copied[i]))
+    items.forEach((item, i) => {
+      item.page = copied.pages[i]
+      item.burns = copied.burns[i]
+    })
   }
 
-  // 4. Primary pages, blank pages and repeats.
+  // 5. Primary pages, blank pages and repeats.
   for (const item of plan) {
     if (item.kind === 'primary') {
       item.page = origPages[item.pageIndex]
@@ -381,15 +483,23 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
       item.page = page
     }
   }
-  const cloned = new Set<PDFPage>()
+  // Repeats share content streams and resources with the first occurrence. Nothing has drawn
+  // on any page yet, so the copies start from the same (original) content.
+  const sharing = new Set<PDFPage>()
   for (const item of plan) {
     if (item.kind !== 'clone') continue
     const original = item.of.page!
-    const burn = item.of.kind === 'primary' && pageWidgets(out, original).length > 0
-    item.page = clonePage(out, original, burn)
-    cloned.add(original)
+    item.page = clonePage(out, original)
+    item.burns =
+      item.of.kind === 'primary'
+        ? pageWidgets(out, original).flatMap((w) => {
+            const b = widgetBurn(out, w)
+            return b ? [b] : []
+          })
+        : item.of.burns
+    sharing.add(original)
+    sharing.add(item.page)
   }
-  for (const original of cloned) detachCachedContentStream(original)
 
   const finalPages = plan.map((item) => item.page!)
   rebuildPageTree(out, finalPages)
@@ -400,7 +510,29 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   deleteRemovedAnnotations(out.context, removed)
   for (const p of removedPages) out.context.delete(p.ref)
 
-  // 5. Draw objects, watermark and page numbers.
+  // 6. Edits of existing content (first: item ids refer to the original content, so nothing
+  //    may draw on a page before), annotation edits, then the burned-in widgets.
+  const helpers: ContentEditHelpers = { embedFont: (font) => cache.font(out, font) }
+  for (const item of plan) {
+    const page = item.page!
+    const contentEdits = doc.contentEdits?.[item.entry.id]
+    if (contentEdits?.length) {
+      if (sharing.has(page)) unshareContents(out, page)
+      await applyContentEdits(out, page, visibleBox(page), contentEdits, helpers, restoredIdsOfItem(doc, item))
+      afterContentRewrite(page)
+    }
+    await applyAnnotationEdits(out, page, doc.annotationEdits?.[item.entry.id], cache)
+  }
+  for (const item of plan) if (item.burns?.length) drawBurns(item.page!, item.burns)
+
+  // 7. New form fields, then flattening (which includes them).
+  if (fieldObjects.length) {
+    const pageById = new Map(plan.map((item) => [item.entry.id, item.page!]))
+    await createNewFields(out, out.getForm(), fieldObjects, (o) => pageById.get(o.pageId), cache)
+  }
+  if (doc.settings.flattenForms && hasAcroForm(out)) await flattenForm(out, out.getForm(), finalPages, cache)
+
+  // 8. Draw objects, watermark and page numbers.
   const objectsByPage = new Map<string, EditObject[]>()
   for (const obj of doc.objects) {
     let list = objectsByPage.get(obj.pageId)
@@ -432,7 +564,18 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     if (pageNumbers) await drawPageNumber(target, pageNumbers, i, plan.length, cache)
   }
 
-  // 6. Metadata, cleanup, encryption, save.
+  // 9. Keep the EditObjects editable after reopening (after all drawing: the data includes a
+  //    fingerprint of the final page content).
+  const lastModified = PDFString.fromDate(new Date())
+  for (const item of plan) {
+    const page = item.page!
+    clearPageObjects(page)
+    untagAnnotations(out.context, page)
+    const objects = objectsByPage.get(item.entry.id)
+    if (objects?.length) writePageObjects(out, page, objects, lastModified)
+  }
+
+  // 10. Metadata, cleanup, encryption, save.
   applyMetadata(out, doc)
   const enc = doc.settings.encryption
   if (enc && (enc.userPassword || enc.ownerPassword || enc.permissions) && stripPdfAIdentification(out)) {
@@ -466,6 +609,13 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   })
 }
 
+function restoredIdsOfItem(doc: EditorDocument, item: PlanItem): Set<string> {
+  const base = item.kind === 'clone' ? item.of : item
+  if (base.kind === 'primary') return restoredIdsOf(doc.sources[doc.primarySourceId!], base.pageIndex)
+  if (base.kind === 'copy') return restoredIdsOf(doc.sources[base.sourceId], base.pageIndex)
+  return new Set()
+}
+
 /** Above this many objects, files are written without object streams (see exportDocument). */
 const OBJECT_STREAM_LIMIT = 10_000
 
@@ -474,4 +624,98 @@ export async function splitDocument(doc: EditorDocument, groups: string[][]): Pr
   const results: Uint8Array[] = []
   for (const group of groups) results.push(await exportDocument(doc, { pageIds: group }))
   return results
+}
+
+// ---------------------------------------------------------------------------------------
+// Existing content and page previews
+// ---------------------------------------------------------------------------------------
+
+/** Parsed (decrypted) pdf-lib documents per source; never modified (pages are copied out). */
+const parsedSources = new WeakMap<SourceDocument, Promise<PDFDocument>>()
+const contentItemCache = new WeakMap<SourceDocument, Map<number, Promise<ContentItem[]>>>()
+
+function parsedSource(source: SourceDocument): Promise<PDFDocument> {
+  let p = parsedSources.get(source)
+  if (!p) {
+    p = openPdfLib(source.bytes, source.password, { identify: false }).then((o) => o.doc)
+    parsedSources.set(source, p)
+    p.catch(() => parsedSources.delete(source))
+  }
+  return p
+}
+
+function sourcePageOf(doc: EditorDocument, pageId: string): { entry: PageEntry; source?: SourceDocument; pageIndex: number } {
+  const entry = doc.pages.find((p) => p.id === pageId)
+  if (!entry) throw new Error(`Unknown page ${pageId}.`)
+  if (entry.source.kind !== 'source') return { entry, pageIndex: -1 }
+  const source = doc.sources[entry.source.sourceId]
+  const ok = !!source && entry.source.pageIndex >= 0 && entry.source.pageIndex < source.pageCount
+  return { entry, source: ok ? source : undefined, pageIndex: entry.source.pageIndex }
+}
+
+/**
+ * Existing content of a page (text runs, images, paths…) from its source page, in page space,
+ * without edits applied (apply ContentEdit.transform for the current placement). Drawings of
+ * restored objects are excluded. Blank pages have none. Results are cached per source page.
+ */
+export async function getContentItems(doc: EditorDocument, pageId: string): Promise<ContentItem[]> {
+  const { source, pageIndex } = sourcePageOf(doc, pageId)
+  if (!source) return []
+  let perSource = contentItemCache.get(source)
+  if (!perSource) {
+    perSource = new Map()
+    contentItemCache.set(source, perSource)
+  }
+  let items = perSource.get(pageIndex)
+  if (!items) {
+    items = parsedSource(source).then((pdf) => {
+      const page = pdf.getPage(pageIndex)
+      return listContentItems(pdf, page, visibleBox(page), restoredIdsOf(source, pageIndex))
+    })
+    perSource.set(pageIndex, items)
+    items.catch(() => perSource!.delete(pageIndex))
+  }
+  return items
+}
+
+/** Copy one page into `dst` without following references to other pages (fast, small). */
+function copyPageAlone(dst: PDFDocument, src: PDFDocument, pageIndex: number): PDFPage {
+  const copier = PDFObjectCopier.for(src.context, dst.context)
+  const traversed = (copier as unknown as { traversedObjects?: Map<PDFObject, PDFObject> }).traversedObjects
+  if (traversed) for (const p of src.getPages()) traversed.set(p.ref, PDFNull)
+  const copy = copier.copy(src.getPage(pageIndex).node) as PDFPageLeaf
+  return PDFPage.of(copy, dst.context.register(copy), dst)
+}
+
+/**
+ * One-page PDF for displaying a page whose existing content changed (see pageNeedsPreview):
+ * the source page with content edits and annotation edits applied and drawings of restored
+ * objects removed. Not included: EditObjects, form widgets changes, watermark, page numbers
+ * (the UI draws those itself). Keeps the page's own /Rotate and boxes.
+ */
+export async function renderPagePreview(doc: EditorDocument, pageId: string): Promise<Uint8Array> {
+  const { entry, source, pageIndex } = sourcePageOf(doc, pageId)
+  const out = await PDFDocument.create({ updateMetadata: false })
+  if (!source) {
+    out.addPage([entry.width, entry.height])
+  } else {
+    const cache = new EmbedCache()
+    const page = copyPageAlone(out, await parsedSource(source), pageIndex)
+    out.addPage(page)
+    tagAnnotations(out.context, page)
+    const ids = restoredIdsOf(source, pageIndex)
+    if (ids.size) {
+      removeMarkedAnnotations(out.context, page, ids, { widgets: true })
+      stripMarkedContent(out, page, ids)
+      afterContentRewrite(page)
+    }
+    const edits = doc.contentEdits?.[pageId]
+    if (edits?.length) {
+      await applyContentEdits(out, page, visibleBox(page), edits, { embedFont: (f) => cache.font(out, f) }, ids)
+    }
+    await applyAnnotationEdits(out, page, doc.annotationEdits?.[pageId], cache)
+    applyWidgetEditsToPage(out, page, pageIndex, source.formFields, doc.fieldEdits?.[source.id])
+    untagAnnotations(out.context, page)
+  }
+  return out.save({ useObjectStreams: false, objectsPerTick: Infinity, addDefaultPage: false, updateFieldAppearances: false })
 }

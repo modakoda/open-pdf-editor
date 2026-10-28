@@ -78,7 +78,7 @@ describe('editing shortcuts', () => {
   it('single-letter hotkeys switch tools', () => {
     setup()
     const map: Record<string, string> = {
-      v: 'select', h: 'hand', t: 'text', e: 'edit-text', r: 'rect', o: 'ellipse', l: 'line',
+      v: 'select', h: 'hand', t: 'text', e: 'edit-content', f: 'form-design', r: 'rect', o: 'ellipse', l: 'line',
       a: 'arrow', p: 'ink', m: 'highlight', w: 'whiteout', n: 'note'
     }
     for (const [k, tool] of Object.entries(map)) {

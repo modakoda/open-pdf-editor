@@ -5,25 +5,42 @@ import {
   clamp,
   displayRotation,
   getObjectsForPage,
+  getPageAnnotations,
   isBoxObject,
   overlayTransform,
   updateObject,
   viewToPage,
   type Box,
-  type BoxObject,
+  type ContentItem,
   type EditObject,
   type ImageObject,
   type InkObject,
   type LineObject,
+  type NewFieldType,
   type PageEntry,
   type Point,
   type ShapeObject,
   type TextObject
 } from '@core'
-import { useEditor } from '@renderer/state/store'
+import { useEditor, type ElementRef } from '@renderer/state/store'
+import { useContentItems, useNearViewport } from './contentItems'
 import { useEditing } from './editingState'
-import { EditTextLayer, coveringTextObject, sampleBackground, useTextRuns } from './EditTextLayer'
-import { FormFieldsLayer } from './FormFieldsLayer'
+import { AnnotationsLayer, ContentItemsLayer, ContentTextEditor, needsNoteIcon } from './ElementLayers'
+import {
+  applyElementChange,
+  canRotate,
+  elementRect,
+  moveChange,
+  refKey,
+  resizeChange,
+  resolveElement,
+  rotateChange,
+  sameRef,
+  type ElementChange,
+  type ElementGeom
+} from './elements'
+import { FIELD_TOOL_TYPES, DEFAULT_FIELD_SIZE, isFieldTool, makeFieldObject } from './fields'
+import { FormFieldsLayer, staleWidgetMasks, type FieldMode } from './FormFieldsLayer'
 import {
   diffPatch,
   dragBox,
@@ -56,7 +73,9 @@ import {
   NOTE_SIZE,
   placedImageBox
 } from './objects'
-import { SelectionFrame } from './SelectionFrame'
+import { sampleAroundBox } from './pageCanvas'
+import { PreviewsLayer, useElementPreviews } from './previews'
+import { RectFrame, SelectionFrame } from './SelectionFrame'
 import { TextEditor, textCoalesceKey } from './TextEditor'
 import { ONE_SHOT_TOOLS } from './tools'
 import './PageOverlay.css'
@@ -74,7 +93,7 @@ const DRAG_THRESHOLD = 3
 /** A new ink stroke started within this time after the previous one joins the same object. */
 export const INK_MERGE_MS = 1200
 
-type BoxTool = 'rect' | 'ellipse' | 'highlight' | 'whiteout' | 'text'
+type BoxTool = 'rect' | 'ellipse' | 'highlight' | 'whiteout' | 'text' | 'field'
 
 interface GestureBase {
   pointerId: number
@@ -85,18 +104,26 @@ interface GestureBase {
 }
 
 type Gesture =
-  | (GestureBase & { kind: 'create-box'; tool: BoxTool; previewId: string })
+  | (GestureBase & { kind: 'create-box'; tool: BoxTool; fieldType?: NewFieldType; previewId: string })
   | (GestureBase & { kind: 'create-line'; arrow: boolean; previewId: string })
   | (GestureBase & { kind: 'ink'; points: Point[] })
   | (GestureBase & { kind: 'move'; obj: EditObject; wasSelected: boolean })
   | (GestureBase & { kind: 'resize'; obj: EditObject; handle: ResizeHandle })
   | (GestureBase & { kind: 'rotate'; obj: TextObject | ImageObject | ShapeObject })
   | (GestureBase & { kind: 'endpoint'; obj: LineObject; which: 1 | 2 })
+  | (GestureBase & {
+      kind: 'element'
+      mode: 'move' | 'resize' | 'rotate'
+      ref: ElementRef
+      geom: ElementGeom
+      handle?: ResizeHandle
+    })
 
 type Preview =
   | { kind: 'object'; obj: EditObject; isNew: boolean }
   | { kind: 'ink'; points: Point[] }
   | { kind: 'draft-box'; box: Box }
+  | { kind: 'element'; ref: ElementRef; change: ElementChange }
 
 function blurEditable(): void {
   const el = document.activeElement as HTMLElement | null
@@ -105,16 +132,32 @@ function blurEditable(): void {
   }
 }
 
+/** Box objects plus FieldObjects (positioned by a box, resizable with handles). */
+function isBoxLike(obj: EditObject): obj is Extract<EditObject, Box> {
+  return isBoxObject(obj) || obj.type === 'field'
+}
+
+/** Which kind of existing element the tool works with. */
+function elementKindFor(tool: string): ElementRef['kind'] | null {
+  if (tool === 'select') return 'annotation'
+  if (tool === 'edit-content') return 'content'
+  if (tool === 'form-design') return 'field'
+  return null
+}
+
 /**
- * Interactive layer drawn over one rendered page: existing EditObjects, form fields, and
- * pointer handling for the active tool. Absolutely positioned to cover the displayed page.
+ * Interactive layer drawn over one rendered page: existing EditObjects, form fields, existing
+ * content / annotations, and pointer handling for the active tool. Absolutely positioned to
+ * cover the displayed page.
  */
 export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
   const doc = useEditor((s) => s.doc)
   const tool = useEditor((s) => s.tool)
   const selectedId = useEditor((s) => s.selectedObjectId)
+  const selectedElement = useEditor((s) => s.selectedElement)
   const pendingImage = useEditor((s) => s.pendingImage)
   const editingTextId = useEditing((s) => s.editingTextId)
+  const editingContent = useEditing((s) => s.editingContent)
   const openNoteId = useEditing((s) => s.openNoteId)
   const cancelToken = useEditing((s) => s.cancelToken)
 
@@ -124,8 +167,20 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
   const [ghostAt, setGhostAt] = useState<Point | null>(null)
 
   const objects = useMemo(() => (doc ? getObjectsForPage(doc, page.id) : []), [doc, page.id])
-  const source = doc && page.source.kind === 'source' ? doc.sources[page.source.sourceId] : undefined
-  const runs = useTextRuns(page, source, tool === 'edit-text')
+  const near = useNearViewport(rootRef)
+  const hasContentEdits = !!doc?.contentEdits?.[page.id]?.length
+  const wantItems = near && (tool === 'edit-content' || hasContentEdits || selectedElement?.kind === 'content')
+  const { items, error: itemsError } = useContentItems(doc, page, wantItems)
+  useEffect(() => {
+    if (itemsError && useEditor.getState().tool === 'edit-content') {
+      useEditor.getState().showNotice('error', `The content of page ${pageIndex + 1} could not be read: ${itemsError}`)
+    }
+  }, [itemsError, pageIndex])
+  const annotations = useMemo(
+    () => (doc && page.source.kind === 'source' ? getPageAnnotations(doc, page.id) : []),
+    [doc, page.id, page.source.kind]
+  )
+  const previews = useElementPreviews(rootRef, page, scale, items)
 
   // ---- coordinate helpers -------------------------------------------------------------
   const toPage = (clientX: number, clientY: number): Point => {
@@ -189,7 +244,7 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     switch (g.kind) {
       case 'create-box': {
         const box = dragBox(g.start, clampToPage(p), shift)
-        if (g.tool === 'text') return { kind: 'draft-box', box }
+        if (g.tool === 'text' || g.tool === 'field') return { kind: 'draft-box', box }
         return { kind: 'object', obj: { ...makeShape(g.tool, page.id, box, options), id: g.previewId }, isNew: true }
       }
       case 'create-line': {
@@ -204,10 +259,10 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
       case 'resize': {
         const obj = g.obj
         const minSize = 4 / scale
-        if (isBoxObject(obj)) {
+        if (isBoxLike(obj)) {
           const keepAspect = obj.type === 'image' ? !shift : shift
           const nb = resizeBox(obj, hasRotation(obj) ? obj.rotation ?? 0 : 0, g.handle, p, keepAspect, minSize)
-          let next = { ...obj, ...nb } as BoxObject
+          let next = { ...obj, ...nb } as EditObject
           if (next.type === 'text') next = fitText(next)
           return { kind: 'object', obj: next, isNew: false }
         }
@@ -226,6 +281,13 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
         const q = shift ? snapLine(other, p) : p
         const patch = g.which === 1 ? { x1: q.x, y1: q.y } : { x2: q.x, y2: q.y }
         return { kind: 'object', obj: { ...o, ...patch }, isNew: false }
+      }
+      case 'element': {
+        let change: ElementChange | null
+        if (g.mode === 'move') change = moveChange(g.geom, p.x - g.start.x, p.y - g.start.y)
+        else if (g.mode === 'resize') change = resizeChange(g.geom, g.handle!, p, shift, 2 / scale)
+        else change = rotateChange(g.geom, p, shift)
+        return change ? { kind: 'element', ref: g.ref, change } : null
       }
     }
   }
@@ -255,6 +317,23 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     s.setTool('select')
     useEditor.getState().selectObject(obj.id)
     useEditing.getState().startTextEdit(obj.id)
+  }
+
+  const createField = (fieldType: NewFieldType, drag: Box | null, at: Point) => {
+    const s = useEditor.getState()
+    if (!s.doc) return
+    const size = DEFAULT_FIELD_SIZE[fieldType]
+    const box = drag ?? {
+      x: clamp(at.x - size.width / 2, 0, Math.max(0, page.width - size.width)),
+      y: clamp(at.y - size.height / 2, 0, Math.max(0, page.height - size.height)),
+      ...size
+    }
+    const editing = useEditing.getState()
+    const obj = makeFieldObject(s.doc, fieldType, page.id, roundBox(box), fieldType === 'radio' ? editing.radioJoinGroup : null)
+    s.apply((d) => addObject(d, obj))
+    editing.setRadioJoinGroup(null)
+    s.setTool('form-design')
+    useEditor.getState().selectObject(obj.id)
   }
 
   const commitInk = (g: Gesture & { kind: 'ink' }) => {
@@ -300,9 +379,10 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     const pv = g.moved ? computePreview(g, p, shift) : null
     switch (g.kind) {
       case 'create-box': {
-        if (g.tool === 'text') {
-          const box = pv?.kind === 'draft-box' && pv.box.width * scale >= 12 ? pv.box : null
-          createText(box, g.start)
+        if (g.tool === 'text' || g.tool === 'field') {
+          const box = pv?.kind === 'draft-box' && pv.box.width * scale >= 6 && pv.box.height * scale >= 6 ? pv.box : null
+          if (g.tool === 'text') createText(box && box.width * scale >= 12 ? box : null, g.start)
+          else createField(g.fieldType!, box, g.start)
           return
         }
         let obj: EditObject | null = pv?.kind === 'object' ? pv.obj : null
@@ -358,6 +438,11 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
         s.apply((d) => updateObject(d, g.obj.id, patch))
         return
       }
+      case 'element': {
+        if (!pv || pv.kind !== 'element') return
+        s.apply((d) => applyElementChange(d, g.ref, g.geom, pv.change))
+        return
+      }
     }
   }
 
@@ -367,6 +452,7 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     if (!g.moved && Math.hypot(e.clientX - g.startClient.x, e.clientY - g.startClient.y) < DRAG_THRESHOLD) {
       if (g.kind !== 'ink') return
     }
+    if (!g.moved && g.kind === 'element') previews.ensure(g.ref)
     g.moved = true
     const p = toPage(e.clientX, e.clientY)
     if (g.kind === 'ink') {
@@ -391,6 +477,36 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     setPreview(null)
   }
 
+  /** Start moving/resizing/rotating the selected element, or select the element under the pointer. */
+  const startElementGesture = (base: GestureBase, ref: ElementRef, mode: 'move' | 'resize' | 'rotate', handle?: ResizeHandle) => {
+    const s = useEditor.getState()
+    if (!s.doc) return false
+    const geom = resolveElement(s.doc, ref, items)
+    if (!geom) return false
+    if (mode === 'rotate' && !canRotate(geom)) return false
+    startGesture({ ...base, kind: 'element', mode, ref, geom, handle })
+    return true
+  }
+
+  const handleOnSelectedElement = (target: Element, base: GestureBase, kind: ElementRef['kind']): boolean => {
+    const handle = (target.closest('[data-handle]') as HTMLElement | null)?.dataset.handle
+    const sel = useEditor.getState().selectedElement
+    if (!handle || !sel || sel.kind !== kind || sel.pageId !== page.id) return false
+    if (handle === 'rotate') return startElementGesture(base, sel, 'rotate') || true
+    if ((RESIZE_HANDLES as string[]).includes(handle)) {
+      startElementGesture(base, sel, 'resize', handle as ResizeHandle)
+      return true
+    }
+    return false
+  }
+
+  const selectAndMoveElement = (base: GestureBase, ref: ElementRef) => {
+    const s = useEditor.getState()
+    if (!sameRef(s.selectedElement, ref)) s.selectElement(ref)
+    useEditing.getState().openNote(null)
+    startElementGesture(base, ref, 'move')
+  }
+
   // ---- pointer down: dispatch on the active tool -------------------------------------------
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || tool === 'hand') return
@@ -412,6 +528,12 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     const objEl = target.closest('[data-object-id]') as HTMLElement | null
     const hit = objEl ? findObject(s.doc, objEl.dataset.objectId ?? null) : undefined
 
+    const fieldType = FIELD_TOOL_TYPES[tool]
+    if (fieldType) {
+      startGesture({ ...base, start: clampToPage(p), kind: 'create-box', tool: 'field', fieldType, previewId: newObjectId() })
+      return
+    }
+
     switch (tool) {
       case 'select': {
         const handle = (target.closest('[data-handle]') as HTMLElement | null)?.dataset.handle
@@ -424,6 +546,7 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
             startGesture({ ...base, kind: 'resize', obj: sel, handle: handle as ResizeHandle })
           return
         }
+        if (handleOnSelectedElement(target, base, 'annotation')) return
         if (hit) {
           const wasSelected = s.selectedObjectId === hit.id
           if (!wasSelected) s.selectObject(hit.id)
@@ -431,27 +554,52 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
           startGesture({ ...base, kind: 'move', obj: hit, wasSelected })
           return
         }
+        const annotEl = target.closest('[data-annot-id]') as HTMLElement | null
+        if (annotEl) {
+          selectAndMoveElement(base, { kind: 'annotation', pageId: page.id, annotId: annotEl.dataset.annotId! })
+          return
+        }
         s.selectObject(null)
+        s.selectElement(null)
         editing.openNote(null)
         return
       }
-      case 'edit-text': {
-        if (hit?.type === 'text') {
-          s.selectObject(hit.id)
-          editing.startTextEdit(hit.id)
+      case 'edit-content': {
+        if (handleOnSelectedElement(target, base, 'content')) return
+        const itemEl = target.closest('[data-content-id]') as HTMLElement | null
+        if (itemEl) {
+          selectAndMoveElement(base, { kind: 'content', pageId: page.id, itemId: itemEl.dataset.contentId! })
           return
         }
-        const runEl = target.closest('[data-run-key]') as HTMLElement | null
-        const run = runEl ? runs.find((r) => r.key === runEl.dataset.runKey) : undefined
-        if (run) {
-          const bg = sampleBackground(rootRef.current, page, scale, run) ?? '#ffffff'
-          const obj = coveringTextObject(page.id, run, s.toolOptions, bg)
-          s.apply((d) => addObject(d, obj), { coalesceKey: textCoalesceKey(obj.id) })
-          useEditor.getState().selectObject(obj.id)
-          editing.startTextEdit(obj.id)
+        s.selectElement(null)
+        return
+      }
+      case 'form-design': {
+        const handle = (target.closest('[data-handle]') as HTMLElement | null)?.dataset.handle
+        const sel = findObject(s.doc, s.selectedObjectId)
+        if (handle && sel?.type === 'field' && sel.pageId === page.id && (RESIZE_HANDLES as string[]).includes(handle)) {
+          startGesture({ ...base, kind: 'resize', obj: sel, handle: handle as ResizeHandle })
+          return
+        }
+        if (handleOnSelectedElement(target, base, 'field')) return
+        if (hit?.type === 'field') {
+          if (s.selectedObjectId !== hit.id) s.selectObject(hit.id)
+          startGesture({ ...base, kind: 'move', obj: hit, wasSelected: true })
+          return
+        }
+        const boxEl = target.closest('[data-testid="field-box"]') as HTMLElement | null
+        if (boxEl && boxEl.dataset.sourceId && boxEl.dataset.originalName) {
+          selectAndMoveElement(base, {
+            kind: 'field',
+            sourceId: boxEl.dataset.sourceId,
+            fieldName: boxEl.dataset.originalName,
+            widgetIndex: Number(boxEl.dataset.widgetIndex ?? 0),
+            pageId: page.id
+          })
           return
         }
         s.selectObject(null)
+        s.selectElement(null)
         return
       }
       case 'text':
@@ -505,12 +653,38 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     else if (ghostAt) setGhostAt(null)
   }
 
+  /**
+   * With pointer capture on the overlay, click/dblclick are retargeted to the overlay itself:
+   * find the element under the pointer instead.
+   */
+  const pointerTarget = (e: React.MouseEvent): Element => {
+    const t = e.target as Element
+    const root = rootRef.current
+    if (t !== root || typeof document.elementsFromPoint !== 'function') return t
+    return document.elementsFromPoint(e.clientX, e.clientY).find((el) => el !== root && root?.contains(el)) ?? t
+  }
+
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool !== 'select') return
-    const target = e.target as Element
+    const target = pointerTarget(e)
     if (target.closest('[data-overlay-control]')) return
+    // Small items are covered by their own handles once selected: a double-click there edits the selection.
+    const onHandle = !!target.closest('[data-handle]')
+    const s = useEditor.getState()
+    if (tool === 'edit-content') {
+      const itemEl = target.closest('[data-content-id]') as HTMLElement | null
+      const sel = s.selectedElement
+      const id = itemEl?.dataset.contentId ?? (onHandle && sel?.kind === 'content' && sel.pageId === page.id ? sel.itemId : undefined)
+      const item = id ? items.find((i) => i.id === id) : undefined
+      if (item) startContentTextEdit(item)
+      return
+    }
+    if (tool !== 'select') return
     const objEl = target.closest('[data-object-id]') as HTMLElement | null
-    const obj = objEl ? findObject(useEditor.getState().doc, objEl.dataset.objectId ?? null) : undefined
+    const obj = objEl
+      ? findObject(s.doc, objEl.dataset.objectId ?? null)
+      : onHandle
+        ? findObject(s.doc, s.selectedObjectId)
+        : undefined
     if (obj?.type === 'text') {
       useEditor.getState().selectObject(obj.id)
       useEditing.getState().startTextEdit(obj.id)
@@ -519,7 +693,22 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     }
   }
 
+  const startContentTextEdit = (item: ContentItem) => {
+    if (item.kind !== 'text') return
+    useEditor.getState().selectElement({ kind: 'content', pageId: page.id, itemId: item.id })
+    useEditing.getState().setEditingContent({ pageId: page.id, itemId: item.id })
+  }
+
+  // Enter on a selected text item (keyboard) asks the overlay to open the editor.
+  useEffect(() => {
+    if (editingContent?.pageId !== page.id) return
+    const item = items.find((i) => i.id === editingContent.itemId)
+    if (item && item.kind !== 'text') useEditing.getState().setEditingContent(null)
+  }, [editingContent, items, page.id])
+
   // ---- render ---------------------------------------------------------------------------
+  if (!doc) return <div ref={rootRef} className="ed-overlay" data-testid="page-overlay" data-page-id={page.id} />
+
   const layerStyle: CSSProperties = {
     width: page.width * scale,
     height: page.height * scale,
@@ -538,6 +727,22 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
       ? makeImage(page.id, placedImageBox(page, pendingImage, clampToPage(ghostAt)), pendingImage)
       : null
   const pageRotation = displayRotation(page)
+  const fieldMode: FieldMode = tool === 'select' ? 'fill' : tool === 'form-design' || isFieldTool(tool) ? 'design' : 'static'
+  const live = preview?.kind === 'element' ? { ref: preview.ref, change: preview.change } : null
+
+  const showObjectFrame =
+    selected && (tool === 'select' || selected.id === editingObj?.id || (tool === 'form-design' && selected.type === 'field'))
+  const elementKind = elementKindFor(tool)
+  const selElement =
+    selectedElement && selectedElement.pageId === page.id && selectedElement.kind === elementKind ? selectedElement : null
+  const selGeom = selElement ? resolveElement(doc, selElement, items) : null
+  const selRect = selGeom ? elementRect(selGeom, live && sameRef(live.ref, selElement) ? live.change : null) : null
+  const contentEditItem =
+    editingContent?.pageId === page.id ? items.find((i) => i.id === editingContent.itemId && i.kind === 'text') : undefined
+  const staleMasks = previews.renderedDoc ? staleWidgetMasks(doc, previews.renderedDoc, page) : []
+  const showAnnotations = annotations.length > 0 && (tool === 'select' || annotations.some(needsNoteIcon))
+  const fieldOverride =
+    live?.ref.kind === 'field' && 'box' in live.change ? { key: `${live.ref.fieldName}#${live.ref.widgetIndex}`, box: live.change.box } : null
 
   return (
     <div
@@ -555,6 +760,39 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
         if (!(e.target as Element).closest('[data-overlay-control]') && tool !== 'hand') e.preventDefault()
       }}
     >
+      {(previews.entries.length > 0 || staleMasks.length > 0) && (
+        <div className="ed-layer" style={layerStyle}>
+          {staleMasks.map((b, i) => (
+            <div
+              key={`mask${i}`}
+              className="ed-field-mask"
+              data-testid="widget-mask"
+              aria-hidden="true"
+              style={{
+                left: (b.x - 0.5) * scale,
+                top: (b.y - 0.5) * scale,
+                width: (b.width + 1) * scale,
+                height: (b.height + 1) * scale,
+                background: sampleAroundBox(rootRef.current, page, scale, b)
+              }}
+            />
+          ))}
+          <PreviewsLayer entries={previews.entries} doc={doc} items={items} page={page} scale={scale} live={live} />
+        </div>
+      )}
+      {showAnnotations && (
+        <div className="ed-layer" style={layerStyle}>
+          <AnnotationsLayer
+            annotations={annotations}
+            page={page}
+            scale={scale}
+            selected={selElement}
+            live={live}
+            interactive={tool === 'select'}
+            pageRotation={pageRotation}
+          />
+        </div>
+      )}
       {shown.map((o) => (
         <div key={o.id} className={`ed-layer${o.type === 'highlight' ? ' ed-layer-multiply' : ''}`} style={layerStyle}>
           <ObjectView
@@ -564,10 +802,11 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
             selected={o.id === selectedId}
             editing={o.id === editingObj?.id}
             pageRotation={pageRotation}
+            fieldMode={fieldMode}
           />
         </div>
       ))}
-      {preview && (
+      {preview && preview.kind !== 'element' && (
         <div
           className={`ed-layer ed-layer-preview${preview.kind === 'object' && preview.obj.type === 'highlight' ? ' ed-layer-multiply' : ''}`}
           style={layerStyle}
@@ -586,27 +825,43 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
               }}
             />
           )}
-          {preview.kind === 'ink' && (
-            <InkPreview points={preview.points} page={page} scale={scale} />
-          )}
+          {preview.kind === 'ink' && <InkPreview points={preview.points} page={page} scale={scale} />}
         </div>
       )}
-      {tool === 'edit-text' && runs.length > 0 && (
+      {tool === 'edit-content' && (
         <div className="ed-layer" style={layerStyle}>
-          <EditTextLayer runs={runs} objects={shown} scale={scale} />
+          <ContentItemsLayer doc={doc} page={page} items={items} scale={scale} selected={selElement} live={live} />
         </div>
       )}
       <div className="ed-layer" style={layerStyle}>
-        <FormFieldsLayer page={page} scale={scale} interactive={tool === 'select'} />
+        <FormFieldsLayer page={page} scale={scale} mode={fieldMode} selected={selElement} boxOverride={fieldOverride} />
       </div>
-      {selected && (tool === 'select' || selected.id === editingObj?.id) && (
+      {showObjectFrame && selected && (
         <div className="ed-layer ed-layer-ui" style={layerStyle}>
           <SelectionFrame obj={selected} scale={scale} pageRotation={pageRotation} outlineOnly={selected.id === editingObj?.id} />
+        </div>
+      )}
+      {selRect && selGeom && !contentEditItem && (
+        <div className="ed-layer ed-layer-ui" style={layerStyle}>
+          <RectFrame rect={selRect} scale={scale} pageRotation={pageRotation} rotate={canRotate(selGeom)} testId="element-frame" />
         </div>
       )}
       {editingObj && (
         <div className="ed-layer ed-layer-ui" style={layerStyle}>
           <TextEditor obj={editingObj} scale={scale} maxWidth={page.width - editingObj.x} />
+        </div>
+      )}
+      {contentEditItem && (
+        <div className="ed-layer ed-layer-ui" style={layerStyle}>
+          <ContentTextEditor
+            key={refKey({ kind: 'content', pageId: page.id, itemId: contentEditItem.id })}
+            doc={doc}
+            page={page}
+            item={contentEditItem}
+            scale={scale}
+            background={sampleAroundBox(rootRef.current, page, scale, contentEditItem.bounds)}
+            onDone={() => useEditing.getState().setEditingContent(null)}
+          />
         </div>
       )}
       {ghost && (

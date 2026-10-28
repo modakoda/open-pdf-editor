@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { Lock } from 'lucide-react'
 import { goToPageIndex } from '@renderer/actions/viewActions'
-import { currentPageIndex } from '@renderer/state/selectors'
+import { currentPageIndex, selectionLabel } from '@renderer/state/selectors'
 import { useEditor } from '@renderer/state/store'
 import './statusbar.css'
 
@@ -11,6 +11,7 @@ export function StatusBar() {
   const pageCount = doc?.pages.length ?? 0
   const current = useEditor((s) => (s.doc && s.doc.pages.length ? currentPageIndex(s) + 1 : 0))
   const selectedCount = useEditor((s) => s.selectedPageIds.length)
+  const selection = useEditor(selectionLabel)
   const busy = useEditor((s) => s.busy)
   const zoom = useEditor((s) => s.zoom)
   const fileName = useEditor((s) => s.fileName)
@@ -69,7 +70,13 @@ export function StatusBar() {
           )}{' '}
           of <span data-testid="page-count">{pageCount}</span>
         </span>
-        {selectedCount > 1 && <span className="statusbar-muted">{selectedCount} pages selected</span>}
+        {selection ? (
+          <span className="statusbar-muted" data-testid="selection-status">
+            {selection}
+          </span>
+        ) : (
+          selectedCount > 1 && <span className="statusbar-muted">{selectedCount} pages selected</span>
+        )}
       </div>
       <div className="statusbar-section statusbar-right">
         {busy && <Busy text={busy} />}

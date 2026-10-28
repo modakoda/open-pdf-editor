@@ -3,11 +3,12 @@
  * Called once from App. Ignores key events that originate in inputs, textareas and contenteditables.
  */
 import { useEffect } from 'react'
-import { updateObject, viewToPage, type PageEntry, type Point } from '@core'
+import { viewToPage, type PageEntry, type Point } from '@core'
 import { useEditor } from '@renderer/state/store'
 import { useEditing } from './editingState'
-import { deleteSelected, duplicateSelected, findObject } from './objects'
-import { translatePatch } from './manip'
+import { isFieldTool } from './fields'
+import { duplicateSelected } from './objects'
+import { deleteSelection, nudgeSelection, selectionPageId } from './selection'
 import { activateTool, TOOL_BY_HOTKEY } from './tools'
 
 /** True for targets that take text input (shortcuts must not fire there). */
@@ -42,18 +43,23 @@ export function handleEditingKeyDown(e: KeyboardEvent): void {
 
   if (e.key === 'Escape') {
     const editing = useEditing.getState()
-    const hadSomething = !!(s.selectedObjectId || s.pendingImage || s.tool !== 'select' || editing.openNoteId)
+    const selection = !!(s.selectedObjectId || s.selectedElement)
+    const hadSomething = !!(selection || s.pendingImage || s.tool !== 'select' || editing.openNoteId)
     editing.cancelGesture()
     editing.openNote(null)
+    editing.setEditingContent(null)
     if (s.pendingImage) s.setPendingImage(null)
     s.selectObject(null)
-    if (s.tool !== 'select') s.setTool('select')
+    s.selectElement(null)
+    // Modes (Edit content, Prepare form) are left with a second Escape, once nothing is selected.
+    if (isFieldTool(s.tool)) s.setTool('form-design')
+    else if (s.tool !== 'select' && !((s.tool === 'edit-content' || s.tool === 'form-design') && selection)) s.setTool('select')
     if (hadSomething) e.preventDefault()
     return
   }
 
   if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && !e.altKey) {
-    if (deleteSelected()) e.preventDefault()
+    if (deleteSelection()) e.preventDefault()
     return
   }
 
@@ -65,19 +71,21 @@ export function handleEditingKeyDown(e: KeyboardEvent): void {
     return
   }
 
+  if (e.key === 'Enter' && !mod && !e.altKey && s.selectedElement?.kind === 'content') {
+    // Retype the selected text item (the overlay ignores non-text items).
+    e.preventDefault()
+    const { pageId, itemId } = s.selectedElement
+    useEditing.getState().setEditingContent({ pageId, itemId })
+    return
+  }
+
   const dir = ARROWS[e.key]
   if (dir && !mod && !e.altKey) {
-    const obj = findObject(s.doc, s.selectedObjectId)
-    if (!obj) return
-    const page = s.doc.pages.find((p) => p.id === obj.pageId)
+    const pageId = selectionPageId()
+    const page = pageId ? s.doc.pages.find((p) => p.id === pageId) : undefined
     if (!page) return
-    e.preventDefault()
     const step = e.shiftKey ? 10 : 1
-    const d = screenDeltaToPage(page, { x: dir.x * step, y: dir.y * step })
-    s.apply((doc) => {
-      const cur = doc.objects.find((o) => o.id === obj.id)
-      return cur ? updateObject(doc, obj.id, translatePatch(cur, d.x, d.y)) : doc
-    }, { coalesceKey: `nudge:${obj.id}` })
+    if (nudgeSelection(screenDeltaToPage(page, { x: dir.x * step, y: dir.y * step }))) e.preventDefault()
     return
   }
 

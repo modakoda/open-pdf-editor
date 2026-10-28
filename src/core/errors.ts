@@ -21,3 +21,15 @@ export class PdfLoadError extends Error {
     super(message, options)
   }
 }
+
+/** A form field name is invalid or already used (rename, new field). The message is user-facing. */
+export class FormFieldNameError extends Error {
+  override name = 'FormFieldNameError'
+  constructor(
+    message: string,
+    /** The offending fully qualified name. */
+    readonly fieldName: string
+  ) {
+    super(message)
+  }
+}

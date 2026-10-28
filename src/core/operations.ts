@@ -6,7 +6,14 @@ import { createId } from './ids'
 import { displaySize, normalizeRotation } from './geometry'
 import {
   PAGE_SIZES,
+  type AnnotationEdit,
+  type AnnotationInfo,
+  type Box,
+  type ContentEdit,
   type DocumentSettings,
+  type FieldEdit,
+  type FieldObject,
+  type FormFieldInfo,
   type EditObject,
   type EditorDocument,
   type FormValue,
@@ -36,8 +43,23 @@ export function deletePages(doc: EditorDocument, pageIds: string[]): EditorDocum
   return {
     ...doc,
     pages: doc.pages.filter((p) => !ids.has(p.id)),
-    objects: doc.objects.filter((o) => !ids.has(o.pageId))
+    objects: doc.objects.filter((o) => !ids.has(o.pageId)),
+    ...withoutPages(doc, ids)
   }
+}
+
+/** contentEdits / annotationEdits without the given pages (only keys that exist are returned). */
+function withoutPages(
+  doc: EditorDocument,
+  ids: Set<string>
+): Pick<EditorDocument, 'contentEdits' | 'annotationEdits'> {
+  const out: Pick<EditorDocument, 'contentEdits' | 'annotationEdits'> = {}
+  for (const key of ['contentEdits', 'annotationEdits'] as const) {
+    const map = doc[key]
+    if (!map) continue
+    out[key] = Object.fromEntries(Object.entries(map).filter(([pageId]) => !ids.has(pageId))) as never
+  }
+  return out
 }
 
 /**
@@ -84,16 +106,27 @@ export function duplicatePages(doc: EditorDocument, pageIds: string[]): EditorDo
   const ids = new Set(pageIds)
   const pages: PageEntry[] = []
   const newObjects: EditObject[] = []
+  const contentEdits = doc.contentEdits ? { ...doc.contentEdits } : undefined
+  const annotationEdits = doc.annotationEdits ? { ...doc.annotationEdits } : undefined
   for (const p of doc.pages) {
     pages.push(p)
     if (!ids.has(p.id)) continue
     const copy: PageEntry = { ...p, id: createId('page') }
     pages.push(copy)
-    for (const o of doc.objects) {
-      if (o.pageId === p.id) newObjects.push({ ...o, id: createId('obj'), pageId: copy.id })
-    }
+    const copies = doc.objects
+      .filter((o) => o.pageId === p.id)
+      .map((o) => ({ ...o, id: createId('obj'), pageId: copy.id }) as EditObject)
+    newObjects.push(...withUniqueFieldNames(doc, copies, newObjects))
+    if (contentEdits?.[p.id]) contentEdits[copy.id] = contentEdits[p.id]
+    if (annotationEdits?.[p.id]) annotationEdits[copy.id] = annotationEdits[p.id]
   }
-  return { ...doc, pages, objects: newObjects.length ? [...doc.objects, ...newObjects] : doc.objects }
+  return {
+    ...doc,
+    pages,
+    objects: newObjects.length ? [...doc.objects, ...newObjects] : doc.objects,
+    ...(contentEdits ? { contentEdits } : {}),
+    ...(annotationEdits ? { annotationEdits } : {})
+  }
 }
 
 /**
@@ -122,12 +155,57 @@ export function insertSourcePages(
     }
   })
   const i = clampIndex(index, doc.pages.length)
+  const restored = withUniqueFieldNames(
+    doc,
+    restoredObjectsFor(source, newPages, new Set(doc.objects.map((o) => o.id)))
+  )
   return {
     ...doc,
     primarySourceId: doc.primarySourceId ?? source.id,
     sources: { ...doc.sources, [source.id]: source },
-    pages: [...doc.pages.slice(0, i), ...newPages, ...doc.pages.slice(i)]
+    pages: [...doc.pages.slice(0, i), ...newPages, ...doc.pages.slice(i)],
+    objects: restored.length ? [...doc.objects, ...restored] : doc.objects
   }
+}
+
+/**
+ * EditObjects restored from `source` (SourcePageInfo.restoredObjects) for the given page
+ * entries, with their pageId set. Ids already in `taken` are replaced by fresh ones.
+ */
+export function restoredObjectsFor(source: SourceDocument, pages: PageEntry[], taken: Set<string>): EditObject[] {
+  const out: EditObject[] = []
+  for (const page of pages) {
+    if (page.source.kind !== 'source' || page.source.sourceId !== source.id) continue
+    for (const o of source.pageInfo?.[page.source.pageIndex]?.restoredObjects ?? []) {
+      const id = taken.has(o.id) ? createId('obj') : o.id
+      taken.add(id)
+      out.push({ ...o, id, pageId: page.id } as EditObject)
+    }
+  }
+  return out
+}
+
+/**
+ * Give FieldObjects in `added` names that do not clash with fields already in the document
+ * (other FieldObjects, the primary source's fields). Radio objects that shared a name keep
+ * sharing their new name.
+ */
+function withUniqueFieldNames(doc: EditorDocument, added: EditObject[], alsoTaken: EditObject[] = []): EditObject[] {
+  const fields = added.filter((o): o is FieldObject => o.type === 'field')
+  if (!fields.length) return added
+  const taken = new Set<string>()
+  for (const o of [...doc.objects, ...alsoTaken]) if (o.type === 'field') taken.add(o.name)
+  if (doc.primarySourceId) for (const f of getEffectiveFormFields(doc, doc.primarySourceId)) taken.add(f.name)
+  const renamed = new Map<string, string>()
+  for (const f of fields) {
+    if (renamed.has(f.name) || !taken.has(f.name)) continue
+    let n = 2
+    while (taken.has(`${f.name}_${n}`)) n++
+    renamed.set(f.name, `${f.name}_${n}`)
+    taken.add(`${f.name}_${n}`)
+  }
+  if (!renamed.size) return added
+  return added.map((o) => (o.type === 'field' && renamed.has(o.name) ? { ...o, name: renamed.get(o.name)! } : o))
 }
 
 export function addObject(doc: EditorDocument, obj: EditObject): EditorDocument {
@@ -191,4 +269,153 @@ export function getFormValue(doc: EditorDocument, sourceId: string, fieldName: s
   const user = doc.formValues[sourceId]
   if (user && Object.prototype.hasOwnProperty.call(user, fieldName)) return user[fieldName]
   return doc.sources[sourceId]?.formFields.find((f) => f.name === fieldName)?.value
+}
+
+// ---------------------------------------------------------------------------------------------
+// Existing content, annotations and form fields
+
+function mergeEdit<E extends object>(edits: E[] | undefined, match: (e: E) => boolean, next: E): E[] {
+  const list = edits ?? []
+  const i = list.findIndex(match)
+  return i < 0 ? [...list, next] : list.map((e, j) => (j === i ? next : e))
+}
+
+/**
+ * Merge `patch` into the edit of an existing content item (see getContentItems). Fields set to
+ * undefined in the patch are removed. An edit that ends up empty is dropped.
+ */
+export function editContentItem(
+  doc: EditorDocument,
+  pageId: string,
+  itemId: string,
+  patch: Partial<Omit<ContentEdit, 'itemId'>>
+): EditorDocument {
+  const current = getContentEdit(doc, pageId, itemId) ?? { itemId }
+  const next = dropUndefined({ ...current, ...patch, itemId })
+  const edits = mergeEdit(doc.contentEdits?.[pageId], (e) => e.itemId === itemId, next).filter(
+    (e) => Object.keys(e).length > 1
+  )
+  return { ...doc, contentEdits: { ...doc.contentEdits, [pageId]: edits } }
+}
+
+export function getContentEdit(doc: EditorDocument, pageId: string, itemId: string): ContentEdit | undefined {
+  return doc.contentEdits?.[pageId]?.find((e) => e.itemId === itemId)
+}
+
+/** Merge `patch` into the edit of an existing annotation. Fields set to undefined are removed. */
+export function editAnnotation(
+  doc: EditorDocument,
+  pageId: string,
+  annotId: string,
+  patch: Partial<Omit<AnnotationEdit, 'annotId'>>
+): EditorDocument {
+  const current = getAnnotationEdit(doc, pageId, annotId) ?? { annotId }
+  const next = dropUndefined({ ...current, ...patch, annotId })
+  const edits = mergeEdit(doc.annotationEdits?.[pageId], (e) => e.annotId === annotId, next).filter(
+    (e) => Object.keys(e).length > 1
+  )
+  return { ...doc, annotationEdits: { ...doc.annotationEdits, [pageId]: edits } }
+}
+
+export function getAnnotationEdit(doc: EditorDocument, pageId: string, annotId: string): AnnotationEdit | undefined {
+  return doc.annotationEdits?.[pageId]?.find((e) => e.annotId === annotId)
+}
+
+/** Existing annotations of a page as they currently are (edits applied, deleted ones left out). */
+export function getPageAnnotations(doc: EditorDocument, pageId: string): AnnotationInfo[] {
+  const page = doc.pages.find((p) => p.id === pageId)
+  if (!page || page.source.kind !== 'source') return []
+  const info = doc.sources[page.source.sourceId]?.pageInfo?.[page.source.pageIndex]
+  const out: AnnotationInfo[] = []
+  for (const a of info?.annotations ?? []) {
+    const edit = getAnnotationEdit(doc, pageId, a.id)
+    if (edit?.deleted) continue
+    if (!edit) {
+      out.push(a)
+      continue
+    }
+    const { annotId: _id, deleted: _deleted, ...changes } = edit
+    out.push({ ...a, ...changes })
+  }
+  return out
+}
+
+/** Merge `patch` into the structural edit of an existing form field (keyed by its original name). */
+export function editField(
+  doc: EditorDocument,
+  sourceId: string,
+  fieldName: string,
+  patch: Partial<FieldEdit>
+): EditorDocument {
+  const forSource = doc.fieldEdits?.[sourceId] ?? {}
+  const next = dropUndefined({ ...forSource[fieldName], ...patch })
+  const nextForSource = { ...forSource, [fieldName]: next }
+  if (!Object.keys(next).length) delete nextForSource[fieldName]
+  return { ...doc, fieldEdits: { ...doc.fieldEdits, [sourceId]: nextForSource } }
+}
+
+export function getFieldEdit(doc: EditorDocument, sourceId: string, fieldName: string): FieldEdit | undefined {
+  return doc.fieldEdits?.[sourceId]?.[fieldName]
+}
+
+/** A source's form fields as they currently are: edits applied, deleted fields left out. */
+export interface EffectiveFormField extends FormFieldInfo {
+  /** Name in the source file; the key for formValues, fieldEdits and setFormValue. */
+  originalName: string
+  fontSize?: number
+}
+
+export function getEffectiveFormFields(doc: EditorDocument, sourceId: string): EffectiveFormField[] {
+  const fields = doc.sources[sourceId]?.formFields ?? []
+  const out: EffectiveFormField[] = []
+  for (const f of fields) {
+    const edit = getFieldEdit(doc, sourceId, f.name)
+    if (edit?.deleted) continue
+    if (!edit) {
+      out.push({ ...f, originalName: f.name })
+      continue
+    }
+    const widgets = edit.widgetBoxes
+      ? f.widgets.map((w, i) => (edit.widgetBoxes![i] ? { ...w, box: edit.widgetBoxes![i] as Box } : w))
+      : f.widgets
+    const field: EffectiveFormField = {
+      ...f,
+      originalName: f.name,
+      name: edit.name ?? f.name,
+      widgets,
+      readOnly: edit.readOnly ?? f.readOnly,
+      required: edit.required ?? f.required,
+      multiline: edit.multiline ?? f.multiline,
+      maxLength: edit.maxLength === null ? undefined : (edit.maxLength ?? f.maxLength),
+      options: edit.options ?? f.options,
+      optionLabels: edit.optionLabels === null ? undefined : (edit.optionLabels ?? f.optionLabels)
+    }
+    if (edit.fontSize !== undefined) field.fontSize = edit.fontSize
+    out.push(field)
+  }
+  return out
+}
+
+/**
+ * True when the page must be displayed from renderPagePreview() instead of its source page:
+ * it has content or annotation edits, or hides drawings of restored objects.
+ */
+export function pageNeedsPreview(doc: EditorDocument, pageId: string): boolean {
+  if (doc.contentEdits?.[pageId]?.length || doc.annotationEdits?.[pageId]?.length) return true
+  const page = doc.pages.find((p) => p.id === pageId)
+  if (!page || page.source.kind !== 'source') return false
+  const { sourceId, pageIndex } = page.source
+  const source = doc.sources[sourceId]
+  if (source?.pageInfo?.[pageIndex]?.restoredObjectIds?.length) return true
+  // Deleted fields and moved widgets on this page: pdf.js would still paint the old widgets.
+  for (const [name, edit] of Object.entries(doc.fieldEdits?.[sourceId] ?? {})) {
+    if (!edit.deleted && !edit.widgetBoxes) continue
+    const widgets = source?.formFields.find((f) => f.name === name)?.widgets ?? []
+    if (widgets.some((w, i) => w.pageIndex === pageIndex && (edit.deleted || !!edit.widgetBoxes?.[i]))) return true
+  }
+  return false
+}
+
+function dropUndefined<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
 }

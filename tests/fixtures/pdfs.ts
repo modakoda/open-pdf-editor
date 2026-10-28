@@ -161,7 +161,8 @@ export const FIXTURES = {
   'form.pdf': makeFormPdf,
   'encrypted.pdf': () => makeEncryptedPdf(),
   'owner-only-encrypted.pdf': makeOwnerOnlyEncryptedPdf,
-  'annotated.pdf': makeAnnotatedPdf
+  'annotated.pdf': makeAnnotatedPdf,
+  'existing-content.pdf': makeExistingContentPdf
 } as const
 
 export type FixtureName = keyof typeof FIXTURES
@@ -661,4 +662,130 @@ export async function makeOptionalContentPdf(): Promise<Uint8Array> {
     ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [50, 50, 150, 70], Border: [0, 0, 0], Dest: PDFString.of('start'), StructParent: 1 }))
   )
   return d.save()
+}
+
+// ---------------------------------------------------------------------------------------
+// Fixtures for editing existing annotations / fields and persisted editor objects
+// ---------------------------------------------------------------------------------------
+
+/**
+ * One page with common annotation types, in this /Annots order (ids a0…a11):
+ * a0 Square, a1 Circle, a2 Line, a3 Ink, a4 Highlight, a5 Underline, a6 StrikeOut,
+ * a7 Squiggly, a8 FreeText, a9 Text (with a10 Popup), a11 Link (URI), a12 Stamp,
+ * a13 Widget (text field "field1").
+ * Options: page /Rotate and a crop box offset (crop box [50 100 550 700] on a 700x900 page).
+ */
+export async function makeMarkupAnnotationsPdf(options: { rotate?: number; cropped?: boolean } = {}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const page = options.cropped ? doc.addPage([700, 900]) : doc.addPage(A4)
+  if (options.cropped) page.setCropBox(50, 100, 500, 600)
+  if (options.rotate) page.setRotation(degrees(options.rotate))
+  page.drawText('Markup page', { x: 120, y: 650, size: 20, font })
+  const ctx = doc.context
+  const S = (s: string) => PDFString.of(s)
+  const ap = (w: number, h: number, ops: string) =>
+    ctx.register(ctx.stream(ops, { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, w, h] }))
+  const annots = [
+    { Subtype: 'Square', Rect: [100, 500, 200, 560], C: [1, 0, 0], IC: [1, 1, 0], BS: { W: 2 }, Contents: S('square note'), T: S('Ann') },
+    { Subtype: 'Circle', Rect: [220, 500, 300, 560], C: [0, 0, 1] },
+    { Subtype: 'Line', Rect: [100, 440, 300, 480], L: [105, 450, 295, 470], C: [0, 0.5, 0], LE: ['None', 'OpenArrow'], BS: { W: 2 } },
+    { Subtype: 'Ink', Rect: [320, 440, 420, 520], InkList: [[330, 450, 360, 500, 410, 460]], C: [0.5, 0, 0.5], BS: { W: 3 } },
+    { Subtype: 'Highlight', Rect: [100, 400, 250, 420], QuadPoints: [100, 420, 250, 420, 100, 400, 250, 400], C: [1, 1, 0] },
+    { Subtype: 'Underline', Rect: [100, 370, 250, 390], QuadPoints: [100, 390, 250, 390, 100, 370, 250, 370], C: [0, 0, 1] },
+    { Subtype: 'StrikeOut', Rect: [100, 340, 250, 360], QuadPoints: [100, 360, 250, 360, 100, 340, 250, 340], C: [1, 0, 0] },
+    { Subtype: 'Squiggly', Rect: [100, 310, 250, 330], QuadPoints: [100, 330, 250, 330, 100, 310, 250, 310], C: [0, 0.6, 0] },
+    { Subtype: 'FreeText', Rect: [300, 300, 480, 340], Contents: S('Free text'), DA: S('/Helv 12 Tf 0 0 1 rg'), T: S('Writer') },
+    { Subtype: 'Text', Rect: [450, 560, 470, 580], Contents: S('Sticky'), T: S('Reviewer'), C: [1, 0.8, 0], Name: 'Comment' },
+    { Subtype: 'Popup', Rect: [480, 500, 580, 580], Open: false },
+    { Subtype: 'Link', Rect: [100, 250, 200, 270], Border: [0, 0, 0], A: { S: 'URI', URI: S('https://example.com/old') } },
+    { Subtype: 'Stamp', Rect: [300, 200, 400, 240], Name: 'Approved', AP: { N: ap(100, 40, '0 0.5 0 rg 0 0 100 40 re f') } }
+  ]
+  const refs = annots.map((a) => ctx.register(ctx.obj({ Type: 'Annot', P: page.ref, ...a } as never)))
+  // Popup ↔ parent
+  ctx.lookup(refs[9], PDFDict).set(PDFName.of('Popup'), refs[10])
+  ctx.lookup(refs[10], PDFDict).set(PDFName.of('Parent'), refs[9])
+  page.node.set(PDFName.of('Annots'), ctx.obj(refs))
+  doc.getForm().createTextField('field1').addToPage(page, { x: 300, y: 100, width: 150, height: 20 })
+  return doc.save()
+}
+
+/**
+ * Two pages. Page 1: "name" (text, value "Ona"), "person.age" (text, value "41"), "color" (radio
+ * red/green, value green), "country" (dropdown A/B/C, value B), "agree" (checkbox).
+ * Page 2: "notes" (text).
+ */
+export async function makeEditableFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const p1 = doc.addPage(A4)
+  const p2 = doc.addPage(A4)
+  const form = doc.getForm()
+  const name = form.createTextField('name')
+  name.setText('Ona')
+  name.addToPage(p1, { x: 100, y: 700, width: 200, height: 20 })
+  const age = form.createTextField('person.age')
+  age.setText('41')
+  age.addToPage(p1, { x: 100, y: 650, width: 80, height: 20 })
+  const color = form.createRadioGroup('color')
+  color.addOptionToPage('red', p1, { x: 100, y: 600, width: 15, height: 15 })
+  color.addOptionToPage('green', p1, { x: 140, y: 600, width: 15, height: 15 })
+  color.select('green')
+  const country = form.createDropdown('country')
+  country.addOptions(['A', 'B', 'C'])
+  country.select('B')
+  country.addToPage(p1, { x: 100, y: 550, width: 120, height: 20 })
+  form.createCheckBox('agree').addToPage(p1, { x: 100, y: 500, width: 15, height: 15 })
+  form.createTextField('notes').addToPage(p2, { x: 100, y: 700, width: 200, height: 60 })
+  return doc.save()
+}
+
+// ---------------------------------------------------------------------------------------
+// Existing page content (content-stream engine: src/core/content)
+// ---------------------------------------------------------------------------------------
+
+/** 1x1 red PNG. */
+const RED_PIXEL_PNG = Uint8Array.from(
+  atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='),
+  (c) => c.charCodeAt(0)
+)
+
+/**
+ * Two Letter pages with existing content to select / move / delete / re-type.
+ * Page 1 (drawn directly): "Existing title" (Helvetica-Bold 24, blue) at (72, 720); body lines
+ * "Body line one" / "Body line two" (Helvetica 12) at y 690 / 674; one TJ table row
+ * "Name", "Qty", "Price" (three separate items) at y 640; a red image 100x60 at (72, 500);
+ * a yellow rectangle 150x50 at (300, 500).
+ * Page 2: everything is inside one page-wrapping form XObject (content item "x1"): "Wrapped
+ * title" (Times-Roman 20, item "x1/t3") at (72, 720) and a green rectangle (item "x1/p7") at
+ * (72, 600, 120 x 40). Coordinates above are PDF user space (bottom-left origin).
+ */
+export async function makeExistingContentPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const helv = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const times = await doc.embedFont(StandardFonts.TimesRoman)
+  const p1 = doc.addPage(LETTER)
+  p1.drawText('Existing title', { x: 72, y: 720, size: 24, font: bold, color: rgb(0.1, 0.2, 0.7) })
+  p1.drawText('Body line one\nBody line two', { x: 72, y: 690, size: 12, font: helv, lineHeight: 16 })
+  const img = await doc.embedPng(RED_PIXEL_PNG)
+  p1.drawImage(img, { x: 72, y: 500, width: 100, height: 60 })
+  p1.drawRectangle({ x: 300, y: 500, width: 150, height: 50, color: rgb(1, 0.9, 0.2) })
+  const ctx = doc.context
+  const fonts = p1.node.Resources()!.lookup(PDFName.of('Font'), PDFDict)
+  fonts.set(PDFName.of('FT'), helv.ref)
+  const table = ctx.register(ctx.flateStream('BT /FT 11 Tf 72 640 Td [(Name) -9000 (Qty) -6000 (Price)] TJ ET'))
+  p1.node.addContentStream(table)
+
+  const p2 = doc.addPage(LETTER)
+  const form = ctx.register(
+    ctx.stream('BT /F1 20 Tf 72 720 Td (Wrapped title) Tj ET 0 0.6 0 rg 72 600 120 40 re f', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, LETTER[0], LETTER[1]],
+      Resources: { Font: { F1: times.ref } }
+    })
+  )
+  p2.node.setXObject(PDFName.of('Page'), form)
+  p2.node.set(PDFName.of('Contents'), ctx.register(ctx.flateStream('q /Page Do Q')))
+  return doc.save()
 }

@@ -9,6 +9,7 @@ import {
   PenTool,
   SquareCheck,
   SquareMousePointer,
+  SquareX,
   TextCursorInput,
   Hand,
   Highlighter,
@@ -70,6 +71,13 @@ export const TOOLS: ToolDef[] = [
     hotkey: 'W',
     icon: Eraser,
     hint: 'Drag to cover content with an opaque box (hides it visually; it is not removed from the file)'
+  },
+  {
+    id: 'redact',
+    label: 'Redact',
+    hotkey: 'X',
+    icon: SquareX,
+    hint: 'Drag to mark content for redaction; on save everything under the marks is removed from the file'
   },
   { id: 'note', label: 'Sticky note', hotkey: 'N', icon: StickyNote, hint: 'Click to add a comment' }
 ]

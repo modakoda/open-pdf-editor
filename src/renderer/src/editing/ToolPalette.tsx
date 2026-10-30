@@ -3,6 +3,7 @@ import { useEditor, type ToolId } from '@renderer/state/store'
 import { useEditing } from './editingState'
 import { SignatureDialog } from './SignatureDialog'
 import { isFieldTool } from './fields'
+import { RedactOptions } from './RedactOptions'
 import { activateTool, FIELD_TOOLS, TOOLS, type ToolDef } from './tools'
 import './ToolPalette.css'
 
@@ -11,7 +12,7 @@ const GROUPS: ToolId[][] = [
   ['text', 'edit-content', 'form-design'],
   ['image', 'signature'],
   ['rect', 'ellipse', 'line', 'arrow', 'ink'],
-  ['highlight', 'whiteout', 'note']
+  ['highlight', 'whiteout', 'redact', 'note']
 ]
 
 const WIDTHS = [0.5, 1, 2, 3, 4, 6, 8, 12]
@@ -131,6 +132,7 @@ export function ToolPalette() {
         </Fragment>
       ))}
       <QuickOptions tool={tool} />
+      {tool === 'redact' && hasDoc && <RedactOptions />}
       {signatureOpen && <SignatureDialog onClose={() => setSignatureOpen(false)} />}
     </div>
   )

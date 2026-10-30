@@ -17,6 +17,13 @@ or blank), `EditObject`s drawn on pages, form values, and settings (metadata, wa
 numbers, form flattening, encryption). Every change is a pure function in
 `src/core/operations.ts`; undo/redo stores snapshots (`src/renderer/src/state/store.ts`).
 
+Redaction areas (`EditorDocument.redactions`, edited with `src/core/redactions.ts`) are applied by
+`exportDocument()` after everything else has been drawn: `src/core/redaction.ts` (pages,
+annotations, form fields, fill boxes) uses `src/core/content/redact.ts` (content streams: glyphs,
+paths, form XObject copies) and `src/core/content/images.ts` (image pixels). The optional sanitize
+step is `src/core/sanitize.ts`. On screen the areas are an overlay (`editing/RedactionsLayer.tsx`);
+after a save that applied redactions the saved file is opened again.
+
 The viewer renders source pages with pdf.js (rotation via the viewport, so no re-export is needed
 to display edits) and draws `EditObject`s as an interactive HTML/SVG overlay. `exportDocument()`
 (`src/core/export.ts`) produces the real PDF on save.
@@ -69,7 +76,8 @@ The viewer renders each page as:
 | Welcome screen | `welcome`; buttons `welcome-open`, `welcome-new` |
 | Toolbar buttons | `btn-open`, `btn-save`, `btn-save-as`, `btn-undo`, `btn-redo`, `btn-zoom-in`, `btn-zoom-out`, `btn-fit-width`, `btn-rotate-cw`, `btn-rotate-ccw`, `btn-delete-pages`, `btn-insert-blank`, `btn-insert-pages`, `btn-extract`, `btn-split`, `btn-properties`, `btn-watermark`, `btn-page-numbers`, `btn-security`, `btn-print`, `btn-find` |
 | Zoom label | `zoom-level` (text like `100%`) |
-| Tool buttons | `tool-<ToolId>` e.g. `tool-text`, `tool-rect`, `tool-ink` |
+| Tool buttons | `tool-<ToolId>` e.g. `tool-text`, `tool-rect`, `tool-ink`, `tool-redact` |
+| Redaction | `redactions-layer`; areas `redaction` with `data-redaction-id`, `data-selected`; `redaction-frame`; options `redact-fill-enabled`, `redact-fill`, `redact-overlay-text`, `redact-count`, `redact-apply`; Find `find-redact-all`; dialog checkbox `redact-sanitize` |
 | Sidebar | `sidebar`; each thumbnail `thumbnail` with `data-page-id`, `data-page-index`, `data-selected="true|false"` |
 | Viewer | `viewer` (scroll container); pages as above |
 | Overlay | `page-overlay` (one per page) |
@@ -78,7 +86,7 @@ The viewer renders each page as:
 | Properties panel | `properties-panel` |
 | Form fields | `form-field` with `data-field-name` (the input element itself) |
 | Status bar | `page-count` (text: number of pages), `current-page` (1-based) |
-| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
+| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find|redact"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
 | Notices | `notice` with `data-kind="info|error"` |
 
 ## Commands

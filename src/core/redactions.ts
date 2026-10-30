@@ -38,9 +38,9 @@ export function updateRedaction(
   const list = doc.redactions ?? []
   const i = list.findIndex((r) => r.id === id)
   if (i < 0) return doc
-  const next = { ...list[i], ...patch }
-  if (Object.keys(patch).every((k) => (list[i] as unknown as Record<string, unknown>)[k] === (patch as Record<string, unknown>)[k])) return doc
-  return { ...doc, redactions: [...list.slice(0, i), next, ...list.slice(i + 1)] }
+  const current = list[i] as unknown as Record<string, unknown>
+  if (Object.entries(patch).every(([k, v]) => current[k] === v)) return doc
+  return { ...doc, redactions: [...list.slice(0, i), { ...list[i], ...patch }, ...list.slice(i + 1)] }
 }
 
 export function removeRedactions(doc: EditorDocument, ids: Iterable<string>): EditorDocument {

@@ -6,6 +6,7 @@ import type { OpenedFile } from '@shared/ipc'
 import { isDesktop, platform } from '@renderer/platform'
 import { releasePdfResources } from '@renderer/pdf/resources'
 import { openDialog, type ConfirmResult } from '@renderer/state/dialogs'
+import { confirmRedactions, type RedactionChoice } from './redactActions'
 import { baseName, editor, isPasswordError, notifyError, notifyInfo } from './util'
 
 export const UNTITLED_NAME = 'Untitled.pdf'
@@ -245,12 +246,30 @@ function exclusive(kind: 'save' | 'save-as', task: () => Promise<boolean>): Prom
   return entry.promise
 }
 
-async function exportForSave(): Promise<{ doc: EditorDocument; bytes: Uint8Array; warnings: string[] } | null> {
+async function exportForSave(
+  redaction?: RedactionChoice
+): Promise<{ doc: EditorDocument; bytes: Uint8Array; warnings: string[] } | null> {
   const { doc } = editor()
   if (!doc) return null
   const warnings: string[] = []
-  const bytes = await exportDocument(doc, { onWarning: (w) => warnings.push(w.message) })
+  const bytes = await exportDocument(doc, { onWarning: (w) => warnings.push(w.message), sanitize: redaction?.sanitize })
   return { doc, bytes, warnings }
+}
+
+/**
+ * After a save that applied redactions: open the saved file in place of the document, so what
+ * is shown (and edited further) is what the file contains. Keeps the document if that fails.
+ */
+async function reopenRedacted(bytes: Uint8Array, file: { filePath: string | null; fileName: string }, doc: EditorDocument): Promise<void> {
+  const enc = doc.settings.encryption
+  const password = enc?.userPassword || undefined
+  try {
+    const reopened = await openDocument(bytes, file.fileName, password === undefined ? undefined : { password })
+    if (editor().doc !== doc) return
+    installDocument(reopened, file)
+  } catch {
+    notifyInfo(`The redactions were applied to ${file.fileName}. Open the file again to see the result.`)
+  }
 }
 
 /** "Saved x.pdf", plus anything the engine had to change or skip while saving. */
@@ -284,12 +303,15 @@ export async function save(): Promise<boolean> {
   if (!hasPagesOrNotify(doc)) return false
   if (!filePath) return saveAs()
   return exclusive('save', async () => {
+    const redaction = await confirmRedactions(doc)
+    if (redaction === null) return false
     editor().setBusy('Saving…')
     try {
-      const exported = await exportForSave()
+      const exported = await exportForSave(redaction)
       if (!exported) return false
       await platform.writeFile(filePath, exported.bytes)
       editor().markSaved({ filePath, fileName: baseName(filePath) }, exported.doc)
+      if (redaction) await reopenRedacted(exported.bytes, { filePath, fileName: baseName(filePath) }, exported.doc)
       notifyInfo(savedMessage(baseName(filePath), exported.warnings))
       return true
     } catch (err) {
@@ -312,15 +334,18 @@ export async function saveAs(): Promise<boolean> {
 }
 
 async function saveAsNow(): Promise<boolean> {
-  const { filePath, fileName } = editor()
+  const { filePath, fileName, doc } = editor()
+  const redaction = await confirmRedactions(doc)
+  if (redaction === null) return false
   editor().setBusy('Saving…')
   try {
-    const exported = await exportForSave()
+    const exported = await exportForSave(redaction)
     if (!exported) return false
     const defaultPath = filePath && isDesktop ? filePath : ensurePdfName(fileName || UNTITLED_NAME)
     const path = await platform.saveFileDialog({ defaultPath, bytes: exported.bytes })
     if (!path) return false
     editor().markSaved({ filePath: path, fileName: baseName(path) }, exported.doc)
+    if (redaction) await reopenRedacted(exported.bytes, { filePath: path, fileName: baseName(path) }, exported.doc)
     notifyInfo(savedMessage(baseName(path), exported.warnings))
     return true
   } catch (err) {

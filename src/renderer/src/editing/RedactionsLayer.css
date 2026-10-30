@@ -1,0 +1,58 @@
+/* Redaction areas: red outline with a hatch, editable while the Redact tool is active. */
+.ed-redactions.active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.ed-redaction {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1.5px solid #dc2626;
+  background-color: color-mix(in srgb, var(--redact-fill, #000000) 25%, transparent);
+  background-image: repeating-linear-gradient(45deg, rgba(220, 38, 38, 0.22) 0 3px, transparent 3px 7px);
+  pointer-events: none;
+}
+
+.ed-redactions.active .ed-redaction {
+  pointer-events: auto;
+  cursor: move;
+}
+
+.ed-redaction-draft {
+  border-style: dashed;
+}
+
+.ed-redaction-text {
+  color: #b91c1c;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ed-redact-options .ed-quick-text {
+  width: 110px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.ed-redact-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.ed-redact-count {
+  font-size: 12px;
+  color: var(--fg-muted, inherit);
+  white-space: nowrap;
+}

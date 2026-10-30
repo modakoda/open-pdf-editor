@@ -28,6 +28,8 @@ export type ToolId =
   | 'ink'
   | 'highlight'
   | 'whiteout'
+  /** Mark areas whose content is removed from the file on save. */
+  | 'redact'
   | 'note'
 
 /** Something that already exists in the PDF and is selected (see also selectedObjectId). */

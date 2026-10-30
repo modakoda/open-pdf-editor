@@ -1,7 +1,8 @@
 /** Floating find bar over the viewer (data-testid="dialog" data-dialog="find"). */
 import { useEffect, useRef } from 'react'
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, SquareX, X } from 'lucide-react'
 import { closeFind, findNext, findPrevious, runFind } from '@renderer/actions/find'
+import { redactAllMatches } from '@renderer/actions/redactActions'
 import { useFind } from '@renderer/state/find'
 import { useEditor } from '@renderer/state/store'
 import './find.css'
@@ -108,6 +109,17 @@ export function FindBar() {
         onClick={findNext}
       >
         <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="find-btn"
+        data-testid="find-redact-all"
+        title="Mark all matches for redaction"
+        aria-label="Redact all matches"
+        disabled={count === 0 || searching}
+        onClick={() => void redactAllMatches()}
+      >
+        <SquareX size={16} aria-hidden="true" />
       </button>
       <button
         type="button"

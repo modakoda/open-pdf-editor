@@ -368,6 +368,8 @@ async function redactStream(s: Session, t: Target): Promise<Uint8Array | null> {
 
   // ---- text
   const show = (k: number, op: Op) => {
+    // Glyph positions only matter for hit tests (sanitize-only passes skip them).
+    if (!hiddenDepth && !s.areas.length && !s.collect) return
     let elements: Operand[]
     if (op.op === 'TJ') {
       const arr = op.args[op.args.length - 1]

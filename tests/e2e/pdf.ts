@@ -101,3 +101,29 @@ export async function pdfFieldRects(path: string): Promise<Record<string, [numbe
   }
   return out
 }
+
+/**
+ * Whether `text` occurs anywhere in the file after decoding its streams: as literal bytes or
+ * as hex (how pdf-lib writes standard-font text). Used to prove redacted text is gone.
+ */
+export async function pdfContainsRaw(path: string, text: string): Promise<boolean> {
+  const { PDFRawStream, PDFStream, decodePDFRawStream } = await import('@cantoo/pdf-lib')
+  const doc = await PDFDocument.load(readFileSync(path), { updateMetadata: false })
+  const hex = Array.from(text, (c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    let s: string
+    if (obj instanceof PDFStream) {
+      let data: Uint8Array
+      try {
+        data = obj instanceof PDFRawStream ? decodePDFRawStream(obj).decode() : obj.getContents()
+      } catch {
+        data = obj.getContents()
+      }
+      s = Buffer.from(data).toString('latin1')
+    } else {
+      s = obj.toString()
+    }
+    if (s.includes(text) || s.replace(/\s+/g, '').toLowerCase().includes(hex)) return true
+  }
+  return false
+}

@@ -126,12 +126,11 @@ export async function applyRedactions(
   // Images and fonts drawn by pdf-lib are only written into the file on flush.
   await out.flush()
   const oc = options.sanitize ? new Interpreter(out.context, { cropBox: { x: 0, y: 0, width: 0, height: 0 } }) : undefined
-  const done = new Set<PDFPage>()
   for (const { entry, page } of pages) {
     const areas = areasByPage.get(entry.id) ?? []
     if (!areas.length && !options.sanitize) continue
-    // A page shown twice (clone) shares nothing that is rewritten here: its own /Contents and
-    // copy-on-write resources are created by the content rewrite.
+    // A repeated page (clone) gets its own /Contents and copy-on-write resources here, so the
+    // page it shares them with is not affected.
     const box = visibleBox(page)
     const userAreas = areas.map((a) => toUser(a, box))
     // Image pixels under the areas get the fill of the (first) box drawn over them.
@@ -153,10 +152,7 @@ export async function applyRedactions(
       }
       if (result.touchedMcids.length) stripStructReplacementText(out, page, result.touchedMcids)
     }
-    if (!done.has(page)) {
-      done.add(page)
-      removeAnnotations(out, page, userAreas, oc)
-    }
+    removeAnnotations(out, page, userAreas, oc)
     if (!areas.length) continue
     page.node.delete(N('Thumb'))
     page.node.delete(N('PieceInfo'))

@@ -6,6 +6,7 @@ import { InsertPagesDialog } from './InsertPagesDialog'
 import { PageNumbersDialog } from './PageNumbersDialog'
 import { PasswordDialog } from './PasswordDialog'
 import { PropertiesDialog } from './PropertiesDialog'
+import { RedactDialog } from './RedactDialog'
 import { SecurityDialog } from './SecurityDialog'
 import { SplitDialog } from './SplitDialog'
 import { WatermarkDialog } from './WatermarkDialog'
@@ -36,5 +37,7 @@ export function DialogHost() {
       return <InsertPagesDialog key={id} source={request.source} onClose={close} />
     case 'about':
       return <AboutDialog key={id} onClose={() => close(null)} />
+    case 'redact':
+      return <RedactDialog key={id} areas={request.areas} pages={request.pages} onClose={close} />
   }
 }

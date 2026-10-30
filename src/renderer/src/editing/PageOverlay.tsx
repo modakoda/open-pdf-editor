@@ -75,6 +75,7 @@ import {
 } from './objects'
 import { sampleAroundBox } from './pageCanvas'
 import { PreviewsLayer, useElementPreviews } from './previews'
+import { RedactionsLayer } from './RedactionsLayer'
 import { RectFrame, SelectionFrame } from './SelectionFrame'
 import { TextEditor, textCoalesceKey } from './TextEditor'
 import { ONE_SHOT_TOOLS } from './tools'
@@ -838,6 +839,7 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
       <div className="ed-layer" style={layerStyle}>
         <FormFieldsLayer page={page} scale={scale} mode={fieldMode} selected={selElement} boxOverride={fieldOverride} />
       </div>
+      <RedactionsLayer page={page} scale={scale} style={layerStyle} />
       {showObjectFrame && selected && (
         <div className="ed-layer ed-layer-ui" style={layerStyle}>
           <SelectionFrame obj={selected} scale={scale} pageRotation={pageRotation} outlineOnly={selected.id === editingObj?.id} />

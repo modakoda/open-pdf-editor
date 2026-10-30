@@ -10,6 +10,7 @@ import { isFieldTool } from './fields'
 import { duplicateSelected } from './objects'
 import { deleteSelection, nudgeSelection, selectionPageId } from './selection'
 import { activateTool, TOOL_BY_HOTKEY } from './tools'
+import { handleRedactionKey } from '@renderer/actions/redactActions'
 
 /** True for targets that take text input (shortcuts must not fire there). */
 export function isEditableTarget(target: EventTarget | null): boolean {
@@ -39,6 +40,7 @@ export function handleEditingKeyDown(e: KeyboardEvent): void {
   if (useEditing.getState().signatureOpen) return
   const s = useEditor.getState()
   if (!s.doc) return
+  if (handleRedactionKey(e)) return
   const mod = e.ctrlKey || e.metaKey
 
   if (e.key === 'Escape') {

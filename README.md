@@ -21,6 +21,13 @@ signatures (drawn or typed), rectangles, ellipses, lines, arrows, freehand ink, 
 whiteout, and sticky-note comments. Everything you add stays movable and editable, also after
 saving and reopening the file in Open PDF Editor.
 
+**Redaction**: mark areas with the Redact tool (or mark every match of a search with "Redact all"
+in Find), review them (move, resize, remove, undo), and on save everything under them is removed
+from the file: text (the remaining characters keep their exact positions), vector graphics, image
+pixels, content inside embedded graphics, comments, links and form fields. The areas are then
+filled (any color, or none) with optional overlay text. Optionally "Sanitize document" also removes
+document properties and XMP metadata, attachments, JavaScript and hidden layers.
+
 **Comments and annotations**: move, resize, delete and edit existing notes, highlights, shapes,
 free text and links.
 
@@ -36,8 +43,10 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
 
 ### Limitations
 
-- "Whiteout" only covers content visually. To remove sensitive content, delete it with Edit
-  content (that removes it from the page), and check the result before sharing.
+- "Whiteout" only covers content visually; use Redact to remove sensitive content from the file.
+- Redaction removes whole characters that touch a marked area. Vector paths that are only partly
+  under an area are clipped, so their coordinates stay in the file. Images in formats that cannot
+  be decoded (JPEG 2000, JBIG2, CCITT fax) are removed completely when an area touches them.
 - Moved, resized or retyped content is drawn on top of the page's other content. Text retyped
   with characters the original font lacks uses a similar bundled font.
 - Visible signatures are images; cryptographic digital signatures are not created.

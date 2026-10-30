@@ -32,6 +32,8 @@ export type DialogRequest =
   | { kind: 'split' }
   | { kind: 'insert'; source: SourceDocument }
   | { kind: 'about' }
+  /** Confirm applying redactions on save; resolves { sanitize } (RedactionChoice). */
+  | { kind: 'redact'; areas: number; pages: number }
 
 export type DialogKind = DialogRequest['kind']
 

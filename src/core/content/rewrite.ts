@@ -778,7 +778,6 @@ function placeBlocks(em: Emitter, actions: Action[], keys: Map<string, number>, 
     if (!detours.has(k)) detours.set(k, em.detour(k, needAdv(k)))
     return detours.get(k)!
   }
-  // After the last drawing operation, a block can go to the end (nothing to re-establish).
   let lastDraw = -1
   interp.ops.forEach((o, j) => {
     if (DRAW_OPS.has(o.op)) lastDraw = j
@@ -792,12 +791,15 @@ function placeBlocks(em: Emitter, actions: Action[], keys: Map<string, number>, 
     }
     return -1
   }
-  const resolve = (k: number): number => {
-    if (k === START || k === END || k >= lastDraw) return k === START ? START : END
+  /** `end`: drawing the block at the end is as good (it would not repeat marked-content sections). */
+  const resolve = (k: number, end: boolean): number => {
+    if (k === START || k === END) return k
+    // After the last drawing operation: nothing to re-establish.
+    if (k >= lastDraw && end) return END
     if (em.snapshot(k)?.inText) {
       // Nothing more is shown in this text object: no need to re-open it.
       const e = textEnd(k, false)
-      if (e >= 0) return resolve(e)
+      if (e >= 0) return resolve(e, end)
     }
     // Graphics state levels closed right after the item need not be re-established.
     while (interp.ops[k + 1]?.op === 'Q' && em.snapshot(k + 1)) k++
@@ -805,7 +807,7 @@ function placeBlocks(em: Emitter, actions: Action[], keys: Map<string, number>, 
     if (d === 'text') {
       // The text object cannot be closed here: after its ET.
       const e = textEnd(k, true)
-      return e >= 0 ? resolve(e) : END
+      return e >= 0 ? resolve(e, end) : END
     }
     return d ? k : END
   }
@@ -821,12 +823,15 @@ function placeBlocks(em: Emitter, actions: Action[], keys: Map<string, number>, 
       return
     }
     let anchor: number
-    if (!sortable || !reordered(r)) anchor = lastOp(r)
+    const inPlace = !sortable || !reordered(r)
+    if (inPlace) anchor = lastOp(r)
     else if (i === order.length - 1) anchor = END
     else if (i === 0) anchor = START
     else anchor = prev
-    anchor = resolve(anchor)
-    placements.push({ action: a, anchor, marked: ownMarked(r) })
+    const marked = ownMarked(r)
+    // In place, a block stays inside its own marked-content sections (no repeated MCIDs).
+    anchor = resolve(anchor, !inPlace || !marked.length)
+    placements.push({ action: a, anchor, marked })
     prev = anchor
   })
   return placements

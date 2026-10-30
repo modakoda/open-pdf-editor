@@ -233,6 +233,19 @@ describe('redrawn items keep their stacking order', () => {
     }
   })
 
+  it('keeps the last item of a tagged page inside its section (no repeated MCID)', async () => {
+    const bytes = await pdfFromContent('/P <</MCID 0>> BDC q 0 0 1 rg 72 600 100 40 re f Q EMC /P <</MCID 1>> BDC BT /F1 12 Tf 72 700 Td (Last words) Tj ET EMC', fonts)
+    const items = await listItems(bytes)
+    for (const item of items) {
+      const c = await pageContent(await edit(bytes, [{ itemId: item.id, transform: move(5, 5) }]), 0)
+      balanced(c)
+      expect(c.match(/\/MCID/g)?.length).toBe(2)
+    }
+    const c = await pageContent(await edit(bytes, [{ itemId: byText(items, 'Last words').id, transform: move(5, 5) }]), 0)
+    // After the (now empty) text object, before the section's EMC.
+    expect(c).toMatch(/\/P <<\/MCID 1>> BDC BT \/F1 12 Tf 72 700 Td\s+ET\nQ\nq\n[^]*\(Last words\) Tj\nET\nQ\nq\n[^]*EMC\nQ\n$/)
+  })
+
   it('draws the block at the end of the content when a text clip cannot be re-established', async () => {
     // Glyphs added to a text clip (Tr 7) clip what follows the text object: the text object
     // cannot be closed early, and the clip cannot be restored after a block.

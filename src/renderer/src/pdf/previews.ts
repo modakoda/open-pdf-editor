@@ -56,9 +56,40 @@ export function previewKeyFor(doc: EditorDocument, page: PageEntry): string | nu
   }
   if (!needed) return null
   const { sourceId, pageIndex } = page.source
-  const restored = doc.sources[sourceId]?.pageInfo?.[pageIndex]?.restoredObjectIds?.join(',') ?? ''
-  const edits = JSON.stringify([doc.contentEdits?.[page.id] ?? null, doc.annotationEdits?.[page.id] ?? null, restored])
+  const source = doc.sources[sourceId]
+  const restored = source?.pageInfo?.[pageIndex]?.restoredObjectIds?.join(',') ?? ''
+  const edits = JSON.stringify([
+    doc.contentEdits?.[page.id] ?? null,
+    doc.annotationEdits?.[page.id] ?? null,
+    restored,
+    widgetEditsOnPage(doc, sourceId, pageIndex)
+  ])
   return `${sourceId}:${pageIndex}:${edits.length}:${hash(edits)}`
+}
+
+/**
+ * Field edits that change how this page's widgets are painted in the preview (field deleted,
+ * widget moved or removed), limited to widgets on this source page.
+ */
+function widgetEditsOnPage(doc: EditorDocument, sourceId: string, pageIndex: number): unknown[] {
+  const edits = doc.fieldEdits?.[sourceId]
+  if (!edits) return []
+  const fields = doc.sources[sourceId]?.formFields ?? []
+  const out: unknown[] = []
+  for (const name of Object.keys(edits).sort()) {
+    const edit = edits[name]
+    if (!edit.deleted && !edit.widgetBoxes && !edit.deletedWidgets?.length) continue
+    const widgets = fields.find((f) => f.name === name)?.widgets ?? []
+    const onPage = widgets.map((w, i) => (w.pageIndex === pageIndex ? i : -1)).filter((i) => i >= 0)
+    if (!onPage.length) continue
+    out.push([
+      name,
+      edit.deleted ? 1 : 0,
+      onPage.map((i) => edit.widgetBoxes?.[i] ?? null),
+      onPage.filter((i) => edit.deletedWidgets?.includes(i))
+    ])
+  }
+  return out
 }
 
 function destroy(entry: PreviewEntry): void {

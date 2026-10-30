@@ -11,8 +11,6 @@ import {
   LineJoinStyle,
   PDFHexString,
   PDFName,
-  PDFOperator,
-  PDFOperatorNames,
   PDFString,
   closePath,
   concatTransformationMatrix,
@@ -29,6 +27,7 @@ import {
   setStrokingRgbColor,
   stroke,
   type PDFDocument,
+  type PDFOperator,
   type PDFPage,
   type PDFPageLeaf,
   type RGB
@@ -55,7 +54,7 @@ import type {
 } from './model'
 import { parseColor } from './pdf'
 import { OBJECT_MARK, regenerateAppearance } from './annotations'
-import { OPE_MARK } from './content'
+import { beginObjectMark, endObjectMark } from './persist'
 import { fontMetrics, layoutText, prepareText } from './text'
 import type { EmbedCache } from './exportFonts'
 
@@ -312,13 +311,11 @@ async function addNote(t: DrawTarget, obj: NoteObject, cache: EmbedCache): Promi
 export async function drawObject(t: DrawTarget, obj: EditObject, cache: EmbedCache): Promise<void> {
   if (obj.type === 'field') return
   if (obj.type === 'note') return addNote(t, obj, cache)
-  // Inline property list, written verbatim (pdf-lib's operator args do not include dicts).
-  const props = `<< /Id (${obj.id.replace(/[\\()]/g, (c) => `\\${c}`)}) >>`
-  t.page.pushOperators(PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [PDFName.of(OPE_MARK), props]))
+  t.page.pushOperators(beginObjectMark(obj.id))
   try {
     await drawObjectContent(t, obj, cache)
   } finally {
-    t.page.pushOperators(PDFOperator.of(PDFOperatorNames.EndMarkedContent))
+    t.page.pushOperators(endObjectMark())
   }
 }
 

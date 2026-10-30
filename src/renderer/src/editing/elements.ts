@@ -7,6 +7,7 @@ import {
   editContentItem,
   editField,
   getContentEdit,
+  getFieldEdit,
   getPageAnnotations,
   type AnnotationInfo,
   type Box,
@@ -18,11 +19,13 @@ import {
 } from '@core'
 import type { ElementRef } from '@renderer/state/store'
 import {
+  boundsOfPoints,
   boxToBox,
   IDENTITY,
   invert,
   isIdentity,
   multiply,
+  placedQuad,
   placedRect,
   rectBox,
   rectFromBox,
@@ -32,7 +35,7 @@ import {
   translation,
   type RotRect
 } from './elementGeometry'
-import { widgetsOnPage, type WidgetEntry } from './fields'
+import { currentWidgets, widgetsOnPage, type WidgetEntry } from './fields'
 import { resizeBox, rotationFromPointer, round2, type ResizeHandle } from './manip'
 import { measureContentText } from './textLayout'
 
@@ -109,13 +112,22 @@ export function editContent(doc: EditorDocument, pageId: string, itemId: string,
   return editContentItem(doc, pageId, itemId, patch)
 }
 
+/** An item is gone when it, or a container it is inside (ids "x1/…"), was deleted. */
+export function isContentDeleted(doc: EditorDocument, pageId: string, itemId: string): boolean {
+  const parts = itemId.split('/')
+  for (let k = parts.length; k >= 1; k--) {
+    if (getContentEdit(doc, pageId, parts.slice(0, k).join('/'))?.deleted) return true
+  }
+  return false
+}
+
 export function resolveElement(doc: EditorDocument, ref: ElementRef, items?: ContentItem[]): ElementGeom | null {
   switch (ref.kind) {
     case 'content': {
       const item = items?.find((i) => i.id === ref.itemId)
       if (!item) return null
+      if (isContentDeleted(doc, ref.pageId, ref.itemId)) return null
       const edit = getContentEdit(doc, ref.pageId, ref.itemId)
-      if (edit?.deleted) return null
       return { kind: 'content', item, edit, transform: effectiveTransform(doc, ref.pageId, ref.itemId) }
     }
     case 'annotation': {
@@ -181,15 +193,29 @@ export function rotateChange(g: ElementGeom, pointer: Point, snap: boolean): Ele
   return { transform: multiply(rotationAround({ x: rect.cx, y: rect.cy }, delta), g.transform) }
 }
 
-/** Set an element's geometry to a given axis-aligned box (properties panel X/Y/W/H). */
+/** Axis-aligned bounds of an element as shown in the properties panel (X/Y/W/H). */
+export function elementBounds(g: ElementGeom): Box {
+  if (g.kind !== 'content') return g.box
+  return boundsOfPoints(placedQuad(g.item, g.transform, g.edit, measureContentText))
+}
+
+/**
+ * Set an element's axis-aligned bounds (properties panel X/Y/W/H). Rotated content cannot be
+ * stretched along the page axes without skewing it: a W or H change scales it uniformly,
+ * keeping the bounds' top-left corner.
+ */
 export function boxChange(g: ElementGeom, to: Box): ElementChange {
-  if (g.kind === 'content') {
-    const rect = elementRect(g)
-    const from = rectBox(rect)
-    if (rect.angle) return { transform: multiply(translation(to.x - from.x, to.y - from.y), g.transform) }
-    return { transform: multiply(boxToBox(from, to), g.transform) }
-  }
-  return { box: to }
+  if (g.kind !== 'content') return { box: to }
+  const from = elementBounds(g)
+  // Multiples of 90° stay axis-aligned and can be stretched like unrotated items.
+  const a = ((elementRect(g).angle % 90) + 90) % 90
+  const rotated = a > 1e-6 && 90 - a > 1e-6
+  const sizeChanged = Math.abs(to.width - from.width) > 1e-6 || Math.abs(to.height - from.height) > 1e-6
+  if (!sizeChanged) return { transform: multiply(translation(to.x - from.x, to.y - from.y), g.transform) }
+  if (!rotated) return { transform: multiply(boxToBox(from, to), g.transform) }
+  const f = Math.abs(to.width - from.width) > 1e-6 ? (from.width ? to.width / from.width : 1) : from.height ? to.height / from.height : 1
+  const m: Matrix = [f, 0, 0, f, to.x - from.x * f, to.y - from.y * f]
+  return { transform: multiply(m, g.transform) }
 }
 
 function roundBox(b: Box): Box {
@@ -210,8 +236,13 @@ export function applyElementChange(doc: EditorDocument, ref: ElementRef, g: Elem
       return editAnnotation(doc, ref.pageId, g.annot.id, { bounds: roundBox(change.box) })
     case 'field': {
       if (!('box' in change)) return doc
-      const boxes = g.entry.field.widgets.map((w, i) => (i === g.entry.index ? roundBox(change.box) : w.box))
-      return editField(doc, g.entry.sourceId, g.entry.field.originalName, { widgetBoxes: boxes })
+      const { sourceId, field, index } = g.entry
+      const src = doc.sources[sourceId]?.formFields.find((f) => f.name === field.originalName)
+      if (!src) return doc
+      const edited = getFieldEdit(doc, sourceId, field.originalName)?.widgetBoxes
+      // widgetBoxes is aligned with the SOURCE widgets (deleted ones keep their slot).
+      const boxes = src.widgets.map((w, i) => (i === index ? roundBox(change.box) : (edited?.[i] ?? w.box)))
+      return editField(doc, sourceId, field.originalName, { widgetBoxes: boxes })
     }
   }
 }
@@ -222,9 +253,18 @@ export function deleteElement(doc: EditorDocument, ref: ElementRef): EditorDocum
       return editContentItem(doc, ref.pageId, ref.itemId, { deleted: true })
     case 'annotation':
       return editAnnotation(doc, ref.pageId, ref.annotId, { deleted: true })
-    case 'field':
-      return editField(doc, ref.sourceId, ref.fieldName, { deleted: true })
+    case 'field': {
+      // Deleting one widget (e.g. one radio button) keeps the field, unless it was the last one.
+      const remaining = currentWidgets(doc, ref.sourceId, ref.fieldName).filter((w) => w.index !== ref.widgetIndex)
+      if (!remaining.length) return deleteField(doc, ref.sourceId, ref.fieldName)
+      const deleted = getFieldEdit(doc, ref.sourceId, ref.fieldName)?.deletedWidgets ?? []
+      return editField(doc, ref.sourceId, ref.fieldName, { deletedWidgets: [...new Set([...deleted, ref.widgetIndex])].sort((a, b) => a - b) })
+    }
   }
+}
+
+export function deleteField(doc: EditorDocument, sourceId: string, originalName: string): EditorDocument {
+  return editField(doc, sourceId, originalName, { deleted: true })
 }
 
 /** Remove every edit of an element (back to the original). */

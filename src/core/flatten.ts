@@ -6,10 +6,12 @@
 import {
   PDFArray,
   PDFDict,
+  PDFHexString,
   PDFName,
   PDFNumber,
   PDFRef,
   PDFStream,
+  PDFString,
   concatTransformationMatrix,
   drawObject,
   popGraphicsState,
@@ -21,6 +23,7 @@ import {
 } from '@cantoo/pdf-lib'
 import { isHiddenWidget } from './formFields'
 import { rectFromArray } from './pdf'
+import { beginObjectMark, endObjectMark } from './persist'
 
 export type Matrix = [number, number, number, number, number, number]
 
@@ -93,6 +96,8 @@ export function appearanceToRectMatrix(ctx: PDFContext, widget: PDFDict, apRef: 
 export interface WidgetBurn {
   apRef: PDFRef
   matrix: Matrix
+  /** Widgets of fields created for an EditObject: its id (the burn is marked as its drawing). */
+  objectId?: string
 }
 
 /** How to burn a widget (undefined: hidden, or no usable appearance). */
@@ -101,14 +106,23 @@ export function widgetBurn(doc: PDFDocument, widget: PDFDict): WidgetBurn | unde
   const apRef = normalAppearanceRef(doc.context, widget)
   if (!apRef) return undefined
   const matrix = appearanceToRectMatrix(doc.context, widget, apRef)
-  return matrix ? { apRef, matrix } : undefined
+  if (!matrix) return undefined
+  const mark = widget.lookup(PDFName.of('OPEObjectId'))
+  const objectId = mark instanceof PDFString || mark instanceof PDFHexString ? mark.decodeText() : undefined
+  return objectId ? { apRef, matrix, objectId } : { apRef, matrix }
 }
 
-/** Draw appearances onto a page's content. */
+/**
+ * Draw appearances onto a page's content. Burns of EditObject fields are wrapped in their
+ * object's marked content, so a later export (which restores and re-creates the field)
+ * removes them instead of keeping a stale copy forever.
+ */
 export function drawBurns(page: PDFPage, burns: WidgetBurn[]): void {
   for (const b of burns) {
     const name = page.node.newXObject('FlatWidget', b.apRef)
-    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...b.matrix), drawObject(name), popGraphicsState())
+    const ops = [pushGraphicsState(), concatTransformationMatrix(...b.matrix), drawObject(name), popGraphicsState()]
+    if (b.objectId) page.pushOperators(beginObjectMark(b.objectId), ...ops, endObjectMark())
+    else page.pushOperators(...ops)
   }
 }
 

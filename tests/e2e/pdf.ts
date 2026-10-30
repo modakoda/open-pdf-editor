@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib'
 import { ROOT } from './helpers'
 
 type PdfJs = typeof import('pdfjs-dist')
@@ -50,4 +50,54 @@ export async function pdfTextFieldValue(path: string, name: string): Promise<str
   const field = doc.getForm().getFields().find((f) => f.getName() === name)
   if (!field) return undefined
   return doc.getForm().getTextField(name).getText() ?? ''
+}
+
+export interface PdfTextItem {
+  str: string
+  /** Baseline origin in PDF user space. */
+  x: number
+  y: number
+}
+
+/** Text items of one page (0-based) with their positions. */
+export async function pdfTextItems(path: string, pageIndex: number): Promise<PdfTextItem[]> {
+  const lib = await pdfjs()
+  const task = lib.getDocument({
+    data: new Uint8Array(readFileSync(path)),
+    standardFontDataUrl: join(ROOT, 'node_modules/pdfjs-dist/standard_fonts/'),
+    verbosity: 0
+  })
+  const doc = await task.promise
+  try {
+    const content = await (await doc.getPage(pageIndex + 1)).getTextContent()
+    return content.items.flatMap((it) =>
+      'str' in it && it.str.trim() ? [{ str: it.str, x: it.transform[4], y: it.transform[5] }] : []
+    )
+  } finally {
+    await task.destroy()
+  }
+}
+
+/** Subtypes of the annotations on one page (0-based), e.g. ['Link', 'Text']. */
+export async function pdfAnnotationSubtypes(path: string, pageIndex: number): Promise<string[]> {
+  const doc = await PDFDocument.load(readFileSync(path))
+  const annots = doc.getPage(pageIndex).node.Annots()
+  if (!annots) return []
+  return annots.asArray().map((ref) => {
+    const dict = doc.context.lookup(ref, PDFDict)
+    return String(dict.get(PDFName.of('Subtype'))).replace(/^\//, '')
+  })
+}
+
+/** Field names and the rectangle of each field's first widget ([x, y, width, height], PDF space). */
+export async function pdfFieldRects(path: string): Promise<Record<string, [number, number, number, number]>> {
+  const doc = await PDFDocument.load(readFileSync(path))
+  const out: Record<string, [number, number, number, number]> = {}
+  for (const f of doc.getForm().getFields()) {
+    const w = f.acroField.getWidgets()[0]
+    if (!w) continue
+    const r = w.getRectangle()
+    out[f.getName()] = [r.x, r.y, r.width, r.height]
+  }
+  return out
 }

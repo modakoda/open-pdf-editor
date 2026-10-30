@@ -26,7 +26,7 @@ import type { EmbedCache } from './exportFonts'
 import { acroFormDict, ensureDAFontInDR, updateFieldAppearance } from './exportForms'
 import { OBJECT_MARK, objectMark } from './annotations'
 import { createWidgetPageFinder, rectFromArray, visibleBox } from './pdf'
-import { widgetRefs } from './formFields'
+import { buttonOptions, buttonStates, widgetRefs } from './formFields'
 import type { Box, FieldEdit, FieldObject, FormFieldInfo, FormValue } from './model'
 
 const N = (s: string) => PDFName.of(s)
@@ -106,6 +106,69 @@ export function removeRestoredFields(form: PDFForm, fields: Iterable<PDFField>, 
     removed.add(field)
   }
   return removed
+}
+
+/** Remove some widgets (indexes in getWidgets() order) of a field that keeps others. */
+function removeWidgets(field: PDFField, indexes: number[], byAnnot: Map<PDFObject, PDFPage>): void {
+  const kids = quiet(() => field.acroField.Kids())
+  if (!kids) return
+  const refs = widgetRefs(field)
+  const hasOpt =
+    (field instanceof PDFRadioGroup || field instanceof PDFCheckBox) && !!quiet(() => field.acroField.dict.lookup(N('Opt')))
+  for (const i of [...indexes].sort((a, b) => b - a)) {
+    const ref = refs[i]
+    const page = ref ? byAnnot.get(ref) : undefined
+    if (page && ref) removeAnnotRef(page, ref)
+    kids.remove(i)
+    if (hasOpt) quiet(() => (field.acroField as unknown as { removeExportValue(i: number): void }).removeExportValue(i))
+  }
+}
+
+/**
+ * New export values for a radio group / checkbox: `options` replaces the field's distinct
+ * export values (FormFieldInfo.options order). The field keeps its selection: /Opt entries
+ * are rewritten, or (without /Opt) the on-state names, /AS and /V are renamed.
+ */
+function renameButtonValues(field: PDFRadioGroup | PDFCheckBox, options: string[]): void {
+  const states = buttonStates(field)
+  const distinct = buttonOptions(states)
+  const mapping = new Map<string, string>()
+  distinct.forEach((old, i) => {
+    if (options[i] !== undefined && options[i] !== old) mapping.set(old, options[i])
+  })
+  if (!mapping.size) return
+  const dict = field.acroField.dict
+  const ctx = dict.context
+  const opt = dict.lookup(N('Opt'))
+  if (opt instanceof PDFArray) {
+    const next = states.map((s, i) => {
+      const v = s.exportValue ?? decode(opt.lookup(i)) ?? ''
+      return PDFHexString.fromText(mapping.get(v) ?? v)
+    })
+    dict.set(N('Opt'), ctx.obj(next))
+    return
+  }
+  const widgets = quiet(() => field.acroField.getWidgets()) ?? []
+  const renameState = (name: string) => mapping.get(name) ?? name
+  widgets.forEach((w) => {
+    const ap = w.dict.lookup(N('AP'))
+    if (ap instanceof PDFDict) {
+      for (const k of ['N', 'D', 'R']) {
+        const sub = ap.lookup(N(k))
+        if (!(sub instanceof PDFDict)) continue
+        for (const key of sub.keys()) {
+          const next = renameState(key.decodeText())
+          if (next === key.decodeText()) continue
+          sub.set(N(next), sub.get(key)!)
+          sub.delete(key)
+        }
+      }
+    }
+    const as = w.dict.lookup(N('AS'))
+    if (as instanceof PDFName) w.dict.set(N('AS'), N(renameState(as.decodeText())))
+  })
+  const v = dict.lookup(N('V'))
+  if (v instanceof PDFName) dict.set(N('V'), N(renameState(v.decodeText())))
 }
 
 const INHERITABLE_FIELD_KEYS = ['FT', 'Ff', 'V', 'DV', 'DA', 'Q', 'MaxLen', 'Opt']
@@ -210,6 +273,38 @@ export async function applyFieldEdits(
 ): Promise<void> {
   if (!edits || !Object.keys(edits).length) return
   const byAnnot = annotPages(pages)
+  const findPage = createWidgetPageFinder(pdf, pages)
+  // 0. Widget-level edits first: widgetBoxes / deletedWidgets index FormFieldInfo.widgets,
+  //    i.e. the widgets as listed from the unmodified file.
+  const widgetEdited = new Set<string>()
+  for (const [name, edit] of Object.entries(edits)) {
+    const field = byOriginalName.get(name)
+    if (!field || edit.deleted || (!edit.widgetBoxes && !edit.deletedWidgets?.length)) continue
+    const widgets = quiet(() => field.acroField.getWidgets()) ?? []
+    const refs = widgetRefs(field)
+    // FormFieldInfo.widgets lists the widgets whose page and Rect are known, in order.
+    const listed: { index: number; page: number }[] = []
+    widgets.forEach((w, i) => {
+      const p = findPage(w, refs[i])
+      if (p !== undefined && rectFromArray(quiet(() => w.Rect()))) listed.push({ index: i, page: p })
+    })
+    edit.widgetBoxes?.forEach((box: Box | undefined, i) => {
+      const target = listed[i]
+      if (!box || !target) return
+      const vb = visibleBox(pages[target.page])
+      const x = vb.x + box.x
+      const y = vb.y + vb.height - (box.y + box.height)
+      widgets[target.index].dict.set(N('Rect'), pdf.context.obj([x, y, x + box.width, y + box.height]))
+    })
+    const remove = [...new Set((edit.deletedWidgets ?? []).map((i) => listed[i]?.index).filter((i): i is number => i !== undefined))]
+    if (remove.length && remove.length >= widgets.length) {
+      deleteField(form, field, pages, byAnnot)
+      byOriginalName.delete(name)
+      continue
+    }
+    if (remove.length) removeWidgets(field, remove, byAnnot)
+    widgetEdited.add(name)
+  }
   // 1. Deletions.
   for (const [name, edit] of Object.entries(edits)) {
     const field = byOriginalName.get(name)
@@ -237,31 +332,11 @@ export async function applyFieldEdits(
     }
     for (const [field, name] of renamed) attachField(pdf, form, field, name)
   }
-  // 3. Widget boxes, flags, options, font size.
-  const findPage = createWidgetPageFinder(pdf, pages)
+  // 3. Flags, options, font size (and appearances of moved widgets).
   for (const [name, edit] of Object.entries(edits)) {
     const field = byOriginalName.get(name)
     if (!field || edit.deleted) continue
-    let refresh = false
-    if (edit.widgetBoxes) {
-      const widgets = quiet(() => field.acroField.getWidgets()) ?? []
-      const refs = widgetRefs(field)
-      // FormFieldInfo.widgets lists the widgets whose page and Rect are known, in order.
-      const listed: { widget: (typeof widgets)[number]; page: number }[] = []
-      widgets.forEach((w, i) => {
-        const p = findPage(w, refs[i])
-        if (p !== undefined && rectFromArray(quiet(() => w.Rect()))) listed.push({ widget: w, page: p })
-      })
-      edit.widgetBoxes.forEach((box: Box | undefined, i) => {
-        const target = listed[i]
-        if (!box || !target) return
-        const vb = visibleBox(pages[target.page])
-        const x = vb.x + box.x
-        const y = vb.y + vb.height - (box.y + box.height)
-        target.widget.dict.set(N('Rect'), pdf.context.obj([x, y, x + box.width, y + box.height]))
-      })
-      refresh = true
-    }
+    let refresh = widgetEdited.has(name)
     if (edit.readOnly !== undefined) (edit.readOnly ? field.enableReadOnly() : field.disableReadOnly())
     if (edit.required !== undefined) (edit.required ? field.enableRequired() : field.disableRequired())
     if (field instanceof PDFTextField) {
@@ -292,11 +367,8 @@ export async function applyFieldEdits(
       setChoiceOptions(field, values, labels ?? null)
       refresh = true
     }
-    if (field instanceof PDFRadioGroup && edit.options) {
-      const count = (quiet(() => field.acroField.getWidgets()) ?? []).length
-      if (edit.options.length === count) {
-        field.acroField.dict.set(N('Opt'), pdf.context.obj(edit.options.map((o) => PDFHexString.fromText(o))))
-      }
+    if ((field instanceof PDFRadioGroup || field instanceof PDFCheckBox) && edit.options) {
+      renameButtonValues(field, edit.options)
     }
     if (edit.fontSize !== undefined && edit.fontSize >= 0) {
       setDAFontSize(pdf, field, edit.fontSize)
@@ -528,13 +600,17 @@ export function applyWidgetEditsToPage(
       annots.remove(k)
       continue
     }
-    if (!edit.widgetBoxes) continue
+    if (!edit.widgetBoxes && !edit.deletedWidgets?.length) continue
     const rect = rectFromArray(d.lookup(N('Rect')))
     const info = infos.get(name!)
     if (!rect || !info) continue
     const current = { x: rect.x - vb.x, y: vb.y + vb.height - (rect.y + rect.height), width: rect.width, height: rect.height }
     const i = info.widgets.findIndex((w) => w.pageIndex === pageIndex && close(w.box, current))
-    const box = i >= 0 ? edit.widgetBoxes[i] : undefined
+    if (i >= 0 && edit.deletedWidgets?.includes(i)) {
+      annots.remove(k)
+      continue
+    }
+    const box = i >= 0 ? edit.widgetBoxes?.[i] : undefined
     if (!box) continue
     const x = vb.x + box.x
     const y = vb.y + vb.height - (box.y + box.height)

@@ -4,15 +4,14 @@
  *
  * Item ids: `<prefix><kind letter><op index>` where the op index counts operations within the
  * current content (page or form XObject) and prefix is `x<n>/` for items inside the form
- * XObject drawn by operation n. Two kinds of marked-content sections written by the editor are
- * numbered specially so ids stay stable when they are added or removed:
- * - `/OPEObject <</Id (…)>> BDC … EMC` (drawings of editor objects): not counted in the
- *   enclosing numbering; items inside get the prefix `@<Id>/`.
- * - `/OPEInline <</Src (x12) /N k>> BDC … EMC` (a form XObject inlined by applyContentEdits):
- *   counts as the single Do operation it replaced; inner operations are numbered as in the
- *   XObject (the first k operations are the wrapper), so inner ids (`x12/t3`) do not change.
+ * XObject drawn by operation n. Marked-content sections written by the editor for its own
+ * objects (`/OPEObject <</Id (…)>> BDC … EMC`) are not counted in the enclosing numbering
+ * (items inside get the prefix `@<Id>/`), so ids stay stable when they are added or removed.
+ *
+ * Optional content: items in layers that are hidden in the document's default configuration
+ * (/OCProperties /D: /BaseState, /ON, /OFF; OCMDs with /P) are not listed.
  */
-import { PDFArray, PDFDict, PDFName, PDFStream, type PDFContext, type PDFObject } from '@cantoo/pdf-lib'
+import { PDFArray, PDFDict, PDFName, PDFRef, PDFStream, type PDFContext, type PDFObject } from '@cantoo/pdf-lib'
 import type { PdfBox } from '../geometry'
 import type { ContentItem, ContentItemKind, Matrix, Point } from '../model'
 import { INITIAL_COLOR, colorHex, colorSpaceInfo, deviceColor, initialComps, type ColorState } from './colors'
@@ -39,7 +38,6 @@ import { pathBounds, type Seg } from './paths'
 import { arrayItems, get, getDict, getMatrix, getName, identityOf, numberArray, numberOf, streamData } from './pdfobj'
 
 export const OPE_MARK = 'OPEObject'
-export const OPE_INLINE = 'OPEInline'
 
 export interface TextState {
   fontName: string | null
@@ -74,8 +72,11 @@ export interface GState {
   flat: number | null
   fill: ColorState
   stroke: ColorState
-  /** ExtGState names applied so far, in order (re-applying a name moves it to the end). */
-  gsNames: string[]
+  /**
+   * ExtGStates applied so far, in order (re-applying a name moves it to the end), with the CTM
+   * at the time (soft masks are defined in that space).
+   */
+  gsNames: { name: string; ctm: Matrix }[]
   fillAlpha: number
   strokeAlpha: number
   clips: ClipPath[]
@@ -157,15 +158,14 @@ export interface ItemRecord {
   pageLevel: boolean
   /** Ids of the form XObject Do items the item is drawn by (outermost first). */
   chain: string[]
-  /** Page-level op indices of the item (paths: construction + W + paint; regions: whole range). */
+  /** Page-level op indices of the item (paths: construction + W + paint). */
   ops: number[]
   gs: GState
   pieces?: TextPiece[]
   text?: TextInfo
   path?: { paintOp: number; clipOp: number; fills: boolean; strokes: boolean }
-  region?: { start: number; end: number }
-  /** Not listed (e.g. an inlined region without visible content); still editable as a whole. */
-  hidden?: boolean
+  /** Property names of the enclosing `/OC /name BDC` sections (outermost first). */
+  oc: string[]
 }
 
 export interface FinalState {
@@ -191,6 +191,8 @@ export interface InterpretOptions {
   skipMarked?: Set<string>
   /** Form XObject nesting levels whose content is listed (default 3). */
   maxDepth?: number
+  /** Graphics state at the start of the content (default: the page's initial state). */
+  startGs?: GState
 }
 
 interface Frame {
@@ -225,6 +227,7 @@ interface TextBuilder {
   pieces: TextPiece[]
   gs: GState
   frame: Frame
+  oc: string[]
 }
 
 interface Scope {
@@ -235,7 +238,8 @@ interface Scope {
 interface Marked {
   scope: boolean
   skip: boolean
-  region?: { id: string; start: number; recordStart: number; gs: GState }
+  /** Property name of a visible `/OC /name BDC` section. */
+  oc?: string
 }
 
 const SPACE_RE = /\s$/
@@ -379,14 +383,51 @@ export function decodeTextString(bytes: Uint8Array): string {
   return latin1(bytes)
 }
 
-function inlineRegion(op: Op): { src: string; n: number } | undefined {
-  if (op.op !== 'BDC' || nameArg(op, 0) !== OPE_INLINE) return undefined
-  const props = op.args[1]
-  if (!(props instanceof PdfDictOp)) return undefined
-  const src = props.get('Src')
-  const n = props.get('N')
-  if (!(src instanceof PdfStr)) return undefined
-  return { src: latin1(src.bytes), n: typeof n === 'number' ? n : 0 }
+
+/**
+ * Graphics state at the start of a form XObject's content drawn with state `gs`: CTM ×
+ * /Matrix, clipped to /BBox (also recorded as a clipping path, so redrawn items keep it).
+ * Inherited parameters that name resources of the parent (color spaces, fonts, ExtGStates) are
+ * marked as inherited: a redraw block inside the form starts in that state already.
+ */
+export function formStartState(gs: GState, xo: PDFStream): GState {
+  const dict = xo.dict
+  const matrix = getMatrix(dict, 'Matrix') ?? IDENTITY
+  const ctm = mul(matrix, gs.ctm)
+  const bbox = numberArray(dict.context, get(dict, 'BBox') as PDFArray | undefined)
+  let clips: ClipPath[] = []
+  let clipRect = gs.clipRect
+  if (bbox && bbox.length === 4) {
+    const x0 = Math.min(bbox[0], bbox[2])
+    const x1 = Math.max(bbox[0], bbox[2])
+    const y0 = Math.min(bbox[1], bbox[3])
+    const y1 = Math.max(bbox[1], bbox[3])
+    const pts = [apply(ctm, x0, y0), apply(ctm, x1, y0), apply(ctm, x1, y1), apply(ctm, x0, y1)]
+    clips = [
+      {
+        segs: [
+          { op: 'm', pts: [pts[0].x, pts[0].y] },
+          { op: 'l', pts: [pts[1].x, pts[1].y] },
+          { op: 'l', pts: [pts[2].x, pts[2].y] },
+          { op: 'l', pts: [pts[3].x, pts[3].y] },
+          { op: 'h', pts: [] }
+        ],
+        evenOdd: false
+      }
+    ]
+    clipRect = intersectRect(gs.clipRect, rectOfPoints(pts))
+  }
+  return {
+    ...gs,
+    ctm,
+    clips,
+    clipRect,
+    gsNames: [],
+    fill: { ...gs.fill, inherited: 'all' },
+    stroke: { ...gs.stroke, inherited: 'all' },
+    text: gs.text.fontName ? { ...gs.text, fontName: null, fontFromGs: true } : gs.text,
+    ver: nextVer()
+  }
 }
 
 export class Interpreter {
@@ -398,6 +439,9 @@ export class Interpreter {
   private readonly cropRect: Rect
   private readonly maxDepth: number
   private skipCount = 0
+  /** Property names of the visible optional-content sections enclosing the current op. */
+  private ocStack: string[] = []
+  private ocConfig: { baseOff: boolean; on: Set<PDFObject>; off: Set<PDFObject> } | null | undefined
 
   constructor(
     readonly ctx: PDFContext,
@@ -409,12 +453,58 @@ export class Interpreter {
     this.maxDepth = opts.maxDepth ?? 3
   }
 
-  /** Interpret page-level operations. */
+  /** Interpret the operations of the content being listed / edited (page or form copy). */
   runPage(ops: Op[], resources: PDFDict | undefined): void {
     this.run(
       { ops, resources, pageLevel: true, chain: [], prefix: '', depth: 0, active: new Set() },
-      initialGState()
+      this.opts.startGs ?? initialGState()
     )
+  }
+
+  /** The default optional-content configuration (/OCProperties /D). */
+  private ocDefaults(): { baseOff: boolean; on: Set<PDFObject>; off: Set<PDFObject> } | null {
+    if (this.ocConfig !== undefined) return this.ocConfig
+    this.ocConfig = null
+    try {
+      const root = this.ctx.lookup(this.ctx.trailerInfo.Root)
+      const props = root instanceof PDFDict ? getDict(root, 'OCProperties') : undefined
+      const d = getDict(props, 'D')
+      if (d) {
+        const set = (key: string) => {
+          const arr = get(d, key)
+          return new Set(arr instanceof PDFArray ? arrayItems(this.ctx, arr).filter((o) => o) : [])
+        }
+        this.ocConfig = { baseOff: getName(d, 'BaseState') === 'OFF', on: set('ON'), off: set('OFF') }
+      }
+    } catch {
+      this.ocConfig = null
+    }
+    return this.ocConfig
+  }
+
+  /** Whether an optional content group / membership dictionary is hidden by default. */
+  ocHidden(obj: PDFObject | undefined, depth = 0): boolean {
+    const o = obj instanceof PDFRef ? this.ctx.lookup(obj) : obj
+    if (!(o instanceof PDFDict) || depth > 4) return false
+    const cfg = this.ocDefaults()
+    if (!cfg) return false
+    if (getName(o, 'Type') === 'OCMD') {
+      const ocgs = get(o, 'OCGs')
+      const members = ocgs instanceof PDFArray ? arrayItems(this.ctx, ocgs) : ocgs ? [ocgs] : []
+      if (!members.length) return false
+      const vis = members.map((m) => !this.ocHidden(m, depth + 1))
+      switch (getName(o, 'P') ?? 'AnyOn') {
+        case 'AllOn':
+          return !vis.every(Boolean)
+        case 'AnyOff':
+          return !vis.some((v) => !v)
+        case 'AllOff':
+          return !vis.every((v) => !v)
+        default:
+          return !vis.some(Boolean)
+      }
+    }
+    return cfg.baseOff ? !cfg.on.has(o) : cfg.off.has(o)
   }
 
   // ---------------------------------------------------------------------------------------
@@ -474,7 +564,7 @@ export class Interpreter {
       quad: quad.map(roundPoint) as [Point, Point, Point, Point],
       ...itemExtra
     }
-    const rec: ItemRecord = { id, kind, item, pageLevel: frame.pageLevel, chain: frame.chain, ops, gs, ...extra }
+    const rec: ItemRecord = { id, kind, item, pageLevel: frame.pageLevel, chain: frame.chain, ops, gs, oc: this.ocStack, ...extra }
     this.addRecord(rec)
     return rec
   }
@@ -576,18 +666,6 @@ export class Interpreter {
           scopes.push({ prefix: top.prefix + '@' + opeId + '/', next: 0 })
           continue
         }
-        const region = inlineRegion(op)
-        if (region) {
-          top.next++
-          closeText()
-          marked.push({
-            scope: true,
-            skip: false,
-            region: frame.pageLevel ? { id: region.src, start: i, recordStart: this.records.length, gs } : undefined
-          })
-          scopes.push({ prefix: region.src + '/', next: -region.n })
-          continue
-        }
       }
       const idIndex = top.next++
       const id = (letter: string) => top.prefix + letter + idIndex
@@ -645,7 +723,7 @@ export class Interpreter {
           const name = nameArg(op, op.args.length - 1)
           if (!name) break
           const dict = getDict(extGStates, name)
-          const patch: Partial<GState> = { gsNames: [...gs.gsNames.filter((n) => n !== name), name] }
+          const patch: Partial<GState> = { gsNames: [...gs.gsNames.filter((g) => g.name !== name), { name, ctm: gs.ctm }] }
           if (dict) {
             const lw = numberOf(get(dict, 'LW'))
             if (lw !== undefined) patch.lw = lw
@@ -718,7 +796,8 @@ export class Interpreter {
           const c: ColorState = {
             ...base,
             comps,
-            pattern: last instanceof PdfName ? last.name : undefined
+            pattern: last instanceof PdfName ? last.name : undefined,
+            inherited: base.inherited ? 'space' : undefined
           }
           setGs(fill ? { fill: c } : { stroke: c })
           break
@@ -929,6 +1008,7 @@ export class Interpreter {
           const raw = xobjects.get(PDFName.of(name))
           const xo = get(xobjects, name)
           if (!(xo instanceof PDFStream)) break
+          if (this.ocHidden(xo.dict.get(PDFName.of('OC')))) break
           const subtype = getName(xo.dict, 'Subtype')
           if (subtype === 'Image') {
             this.imageItem(frame, gs, id('i'), [i])
@@ -954,19 +1034,34 @@ export class Interpreter {
         case 'BMC':
           marked.push({ scope: false, skip: false })
           break
-        case 'BDC':
+        case 'BDC': {
+          if (nameArg(op, 0) === 'OC') {
+            // Optional content: hidden layers are not listed; visible ones are re-applied to
+            // redrawn items.
+            closeText()
+            const p = op.args[1]
+            const props = p instanceof PdfName ? getDict(resources, 'Properties')?.get(PDFName.of(p.name)) : undefined
+            if (p instanceof PdfName && this.ocHidden(props)) {
+              marked.push({ scope: false, skip: true })
+              this.skipCount++
+            } else {
+              const name = p instanceof PdfName ? p.name : undefined
+              marked.push({ scope: false, skip: false, oc: name })
+              if (name) this.ocStack = [...this.ocStack, name]
+            }
+            break
+          }
           marked.push({ scope: false, skip: false })
           break
+        }
         case 'EMC': {
           const m = marked.pop()
+          if (m?.oc || m?.skip) closeText()
+          if (m?.oc) this.ocStack = this.ocStack.slice(0, -1)
+          if (m?.skip) this.skipCount--
           if (m?.scope) {
             closeText()
             scopes.pop()
-            if (m.skip) this.skipCount--
-            if (m.region) {
-              closeText()
-              this.regionItem(frame, m.region, i)
-            }
           }
           break
         }
@@ -975,8 +1070,11 @@ export class Interpreter {
       }
     }
     closeText()
-    // Unclosed marked-content scopes at the end.
-    for (const m of marked) if (m.skip) this.skipCount--
+    // Unclosed marked-content sections at the end.
+    for (const m of marked) {
+      if (m.skip) this.skipCount--
+      if (m.oc) this.ocStack = this.ocStack.slice(0, -1)
+    }
     if (frame.pageLevel) {
       this.final = { qDepth: stack.length, inText, marked: marked.length, pathOpen: path.length > 0 || pendingClip !== null }
     }
@@ -1076,7 +1174,8 @@ export class Interpreter {
         text: r.text,
         pieces: [piece],
         gs,
-        frame
+        frame,
+        oc: this.ocStack
       }
     }
 
@@ -1202,8 +1301,9 @@ export class Interpreter {
       italic: font.italic,
       origin: roundPoint(origin),
       angle: angle === -180 ? 180 : angle === 0 ? 0 : angle,
-      editableInPlace: font.editable
+      editableInPlace: font.editable && !font.encodingUnknown
     }
+    if (font.encodingUnknown) item.readOnly = true
     const color = strokeOnly ? strokeHex : fillHex
     if (color) item.color = color
     if (strokes && strokeHex) item.strokeColor = strokeHex
@@ -1216,6 +1316,7 @@ export class Interpreter {
       chain: b.frame.chain,
       ops,
       gs: b.gs,
+      oc: b.oc,
       pieces: b.pieces,
       text: { M, font, size, rise: b.rise, minA: b.minA, maxA: b.maxA, lead: b.lead, vertical: b.vertical }
     })
@@ -1287,14 +1388,11 @@ export class Interpreter {
       const data = streamData(xo)
       if (data) {
         const formRes = getDict(dict, 'Resources') ?? frame.resources
-        const inner: GState = {
-          ...gs,
-          ctm,
-          clipRect: bboxUser ? intersectRect(gs.clipRect, bboxUser) : gs.clipRect,
-          ver: nextVer()
-        }
+        const inner = formStartState(gs, xo)
         const active = new Set(frame.active)
         active.add(key)
+        const savedOc = this.ocStack
+        this.ocStack = []
         this.run(
           {
             ops: parseContent(data),
@@ -1307,6 +1405,7 @@ export class Interpreter {
           },
           inner
         )
+        this.ocStack = savedOc
       }
     }
     if (!quad || !bboxUser) {
@@ -1330,44 +1429,7 @@ export class Interpreter {
     }
   }
 
-  private regionItem(frame: Frame, region: { id: string; start: number; recordStart: number; gs: GState }, end: number): void {
-    const inner = this.records.slice(region.recordStart).filter((r) => r.id.startsWith(region.id + '/'))
-    const toUser = pageToUser(this.opts.cropBox)
-    const pts: Point[] = []
-    for (const r of inner) {
-      const b = r.item.bounds
-      pts.push(apply(toUser, b.x, b.y), apply(toUser, b.x + b.width, b.y + b.height))
-    }
-    const ops: number[] = []
-    for (let k = region.start; k <= end; k++) ops.push(k)
-    const rect = rectOfPoints(pts) ?? { x0: 0, y0: 0, x1: 0, y1: 0 }
-    const quad = [
-      { x: rect.x0, y: rect.y1 },
-      { x: rect.x1, y: rect.y1 },
-      { x: rect.x1, y: rect.y0 },
-      { x: rect.x0, y: rect.y0 }
-    ]
-    const saved = this.skipCount
-    this.skipCount = 0
-    const count = this.records.length
-    const rec = this.boxItem(frame, region.gs, region.id, 'xobject', quad, rect, ops, { region: { start: region.start, end } })
-    if (this.records.length > count) this.records.splice(region.recordStart, 0, this.records.pop()!)
-    this.skipCount = saved
-    if (!rec && inner.length === 0) {
-      // Keep an (unlisted) record so the region can still be edited as a whole.
-      this.records.splice(region.recordStart, 0, {
-        id: region.id,
-        kind: 'xobject',
-        item: { id: region.id, kind: 'xobject', bounds: { x: 0, y: 0, width: 0, height: 0 } },
-        pageLevel: frame.pageLevel,
-        chain: frame.chain,
-        ops,
-        gs: region.gs,
-        region: { start: region.start, end },
-        hidden: true
-      })
-    }
-  }
+
 }
 
 function pageToUser(box: PdfBox): Matrix {

@@ -282,11 +282,13 @@ export const useEditor = create<EditorState>()((set, get) => ({
     set({ selectedPageIds })
   },
   setTool(tool) {
-    const keep = tool === 'select'
+    // Each tool only shows (and acts on) its own kind of selection: objects and annotations in
+    // Select, content items in Edit content, fields in Prepare form.
+    const element = get().selectedElement
     set({
       tool,
-      selectedObjectId: keep ? get().selectedObjectId : null,
-      selectedElement: keep || get().selectedElement?.kind === toolElementKind(tool) ? get().selectedElement : null
+      selectedObjectId: tool === 'select' ? get().selectedObjectId : null,
+      selectedElement: element && element.kind === toolElementKind(tool) ? element : null
     })
   },
   setToolOptions(patch) {
@@ -330,6 +332,7 @@ function reconcileSelection(
 
 /** Which existing elements a tool selects: annotations in Select, content in Edit content, fields in Prepare form. */
 function toolElementKind(tool: ToolId): ElementRef['kind'] | null {
+  if (tool === 'select') return 'annotation'
   if (tool === 'edit-content') return 'content'
   if (tool === 'form-design') return 'field'
   return null
@@ -339,11 +342,16 @@ function elementExists(doc: EditorDocument, ref: ElementRef, pageIds: Set<string
   if (!pageIds.has(ref.pageId)) return false
   switch (ref.kind) {
     case 'content':
-      return !doc.contentEdits?.[ref.pageId]?.some((e) => e.itemId === ref.itemId && e.deleted)
+      // Deleting a container (e.g. "x1") deletes the items inside it ("x1/t3").
+      return !doc.contentEdits?.[ref.pageId]?.some(
+        (e) => e.deleted && (e.itemId === ref.itemId || ref.itemId.startsWith(`${e.itemId}/`))
+      )
     case 'annotation':
       return !doc.annotationEdits?.[ref.pageId]?.some((e) => e.annotId === ref.annotId && e.deleted)
-    case 'field':
-      return !doc.fieldEdits?.[ref.sourceId]?.[ref.fieldName]?.deleted
+    case 'field': {
+      const edit = doc.fieldEdits?.[ref.sourceId]?.[ref.fieldName]
+      return !edit?.deleted && !edit?.deletedWidgets?.includes(ref.widgetIndex)
+    }
   }
 }
 

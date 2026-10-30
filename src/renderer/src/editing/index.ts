@@ -10,3 +10,8 @@ export { deleteSelection } from './selection'
 export { PAGE_RENDERED_EVENT } from './previews'
 export { activateTool } from './tools'
 export { useEditing } from './editingState'
+/**
+ * Field name check shared with the fields list: exact match or a dotted-prefix clash ("a" vs
+ * "a.b") with effective fields of the primary source or FieldObjects.
+ */
+export { validateFieldName, namesClash } from './fields'

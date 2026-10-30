@@ -18,6 +18,8 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFOperator,
+  PDFOperatorNames,
   PDFRawStream,
   PDFStream,
   PDFString,
@@ -31,6 +33,20 @@ import type { EditObject, Point } from './model'
 
 const N = (s: string) => PDFName.of(s)
 const APP = N('OpenPDFEditor')
+
+/** Marked-content tag wrapping drawings of EditObjects (same as content/OPE_MARK). */
+const OBJECT_TAG = 'OPEObject'
+
+/** `/OPEObject << /Id (id) >> BDC` for drawings that belong to an EditObject. */
+export function beginObjectMark(id: string): PDFOperator {
+  // Inline property list, written verbatim (pdf-lib's operator args do not include dicts).
+  const props = `<< /Id (${id.replace(/[\\()]/g, (c) => `\\${c}`)}) >>`
+  return PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [PDFName.of(OBJECT_TAG), props])
+}
+
+export function endObjectMark(): PDFOperator {
+  return PDFOperator.of(PDFOperatorNames.EndMarkedContent)
+}
 const FORMAT_VERSION = 1
 
 // ---------------------------------------------------------------------------------------
@@ -83,9 +99,12 @@ type StoredObject = Omit<EditObject, 'pageId'> & { data?: unknown }
 /** Remove our page-piece data (stale after the page changed). */
 export function clearPageObjects(page: PDFPage): void {
   const piece = page.node.lookup(N('PieceInfo'))
-  if (!(piece instanceof PDFDict)) return
-  piece.delete(APP)
-  if (!piece.keys().length) page.node.delete(N('PieceInfo'))
+  if (!(piece instanceof PDFDict) || !piece.get(APP)) return
+  // A copy: duplicated pages may share the same /PieceInfo dictionary.
+  const copy = piece.clone()
+  copy.delete(APP)
+  if (copy.keys().length) page.node.set(N('PieceInfo'), copy)
+  else page.node.delete(N('PieceInfo'))
 }
 
 /** Store `objects` (the page's EditObjects, in z-order) in the page's /PieceInfo. Call after all drawing. */
@@ -112,12 +131,11 @@ export function writePageObjects(pdf: PDFDocument, page: PDFPage, objects: EditO
     Images: imageDict,
     ContentFingerprint: PDFString.of(contentFingerprint(ctx, page))
   })
-  let piece = page.node.lookup(N('PieceInfo'))
-  if (!(piece instanceof PDFDict)) {
-    piece = ctx.obj({})
-    page.node.set(N('PieceInfo'), piece as PDFDict)
-  }
-  ;(piece as PDFDict).set(APP, ctx.obj({ LastModified: lastModified, Private: priv }))
+  // Always a fresh copy: duplicated pages may share the same /PieceInfo dictionary.
+  const existing = page.node.lookup(N('PieceInfo'))
+  const piece = existing instanceof PDFDict ? existing.clone() : ctx.obj({})
+  piece.set(APP, ctx.obj({ LastModified: lastModified, Private: priv }))
+  page.node.set(N('PieceInfo'), piece)
   page.node.set(N('LastModified'), lastModified)
 }
 

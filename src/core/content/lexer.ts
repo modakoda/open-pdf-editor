@@ -365,40 +365,46 @@ function num(o: Operand | undefined): number | undefined {
   return typeof o === 'number' && Number.isFinite(o) ? o : undefined
 }
 
+/** "EI" at `i`, followed by whitespace, a delimiter or the end of the data. */
+function isEIToken(d: Uint8Array, i: number): boolean {
+  if (d[i] !== 0x45 || d[i + 1] !== 0x49) return false
+  return i + 2 >= d.length || !isRegular(d[i + 2])
+}
+
+/** Bytes after an "EI" that pdf.js inspects when the image end is not known exactly. */
+const EI_WINDOW = 24
+
 /**
- * True if an "EI" keyword at `i` (data[i] = 'E') ends an inline image: it must be followed by
- * whitespace/EOF/delimiter, and what follows must look like content stream syntax.
+ * True if an "EI" found by scanning ends the image: like pdf.js, the few bytes after it must
+ * tokenize as operands followed by a known operator (binary image data does not).
  */
 function plausibleEI(d: Uint8Array, i: number): boolean {
-  const len = d.length
-  if (d[i] !== 0x45 || d[i + 1] !== 0x49) return false
+  if (!isEIToken(d, i)) return false
   const after = i + 2
-  if (after < len && isRegular(d[after])) return false
-  // The bytes that follow must be ASCII text (content stream syntax), not binary data.
-  const limit = Math.min(len, after + 96)
-  for (let k = after; k < limit; k++) {
-    const c = d[k]
-    if (c > 0x7e || (c < 0x20 && !WS[c])) return false
+  let limit = Math.min(d.length, after + EI_WINDOW)
+  // Do not cut a token in half at the end of the window.
+  if (limit < d.length) {
+    let k = limit
+    while (k > after && !WS[d[k - 1]]) k--
+    if (k > after) limit = k
   }
-  // And the next keyword (if any, within the window) must be a known operator.
-  const lx = new ContentLexer(d)
+  const lx = new ContentLexer(d.subarray(0, limit))
   lx.pos = after
-  for (let n = 0; n < 12; n++) {
+  for (;;) {
     const t = lx.next()
     if (t === undefined) return true
-    if (lx.pos > limit + 32) return true
     if (t instanceof Keyword) return t.word === '' || KNOWN_OPERATORS.has(t.word) || t.word === ']' || t.word === '>>'
   }
-  return true
 }
 
 /** Find the "EI" that ends inline image data starting at `dataStart`; returns its index (or data.length). */
 function findInlineImageEnd(d: Uint8Array, dataStart: number, dict: PdfDictOp): number {
   const len = d.length
+  // An EI at an exactly known position only has to be a complete token.
   const eiAfter = (p: number): number => {
     let k = p
     while (k < len && WS[d[k]]) k++
-    return plausibleEI(d, k) ? k : -1
+    return isEIToken(d, k) ? k : -1
   }
   // 1. Explicit length (PDF 2.0 /L, or /Length).
   const L = num(dict.get('L')) ?? num(dict.get('Length'))

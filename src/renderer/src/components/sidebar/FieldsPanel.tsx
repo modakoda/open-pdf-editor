@@ -32,6 +32,7 @@ import {
   type FormValue
 } from '@core'
 import { applyEdit } from '@renderer/actions/util'
+import * as editing from '@renderer/editing'
 import { useEditor, type EditorState } from '@renderer/state/store'
 
 export type FieldKind = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'optionlist' | 'signature' | 'button' | 'unknown'
@@ -213,12 +214,65 @@ export function summarizeValue(entry: FieldEntry): string {
   }
 }
 
+/** True when two fully qualified names cannot coexist: equal, or one is a dotted prefix of the other. */
+export function fieldNamesClash(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`)
+}
+
+/** Names of every other field of the document (all sources, FieldObjects), excluding `entry`. */
+function otherFieldNames(doc: EditorDocument, entry: FieldEntry): string[] {
+  const names: string[] = []
+  for (const sourceId of Object.keys(doc.sources)) {
+    let fields: { name: string; originalName: string }[]
+    try {
+      fields = getEffectiveFormFields(doc, sourceId)
+    } catch {
+      fields = (doc.sources[sourceId]?.formFields ?? []).map((f) => ({ name: f.name, originalName: f.name }))
+    }
+    for (const f of fields) {
+      if (entry.origin === 'existing' && entry.sourceId === sourceId && entry.originalName === f.originalName) continue
+      names.push(f.name)
+    }
+  }
+  for (const o of doc.objects) {
+    if (o.type === 'field' && !entry.objectIds?.includes(o.id)) names.push(o.name)
+  }
+  return names
+}
+
+type SharedValidator = (
+  doc: EditorDocument,
+  name: string,
+  self: { kind: 'field'; sourceId: string; originalName: string } | { kind: 'object'; id: string }
+) => string | null
+
+/** The editing layer's validateFieldName() once it is exported (same rules everywhere). */
+function sharedValidator(): SharedValidator | null {
+  try {
+    const fn = (editing as unknown as Record<string, unknown>).validateFieldName
+    return typeof fn === 'function' ? (fn as SharedValidator) : null
+  } catch {
+    return null
+  }
+}
+
 /** Error message for renaming `entry` to `name`, or null when the name is valid. */
-export function validateFieldName(entries: FieldEntry[], entry: FieldEntry, name: string): string | null {
+export function validateFieldName(doc: EditorDocument, entry: FieldEntry, name: string): string | null {
   const trimmed = name.trim()
+  if (trimmed === entry.name) return null
+  const shared = sharedValidator()
+  if (shared) {
+    const self =
+      entry.origin === 'existing'
+        ? { kind: 'field' as const, sourceId: entry.sourceId ?? '', originalName: entry.originalName ?? entry.name }
+        : { kind: 'object' as const, id: entry.objectIds?.[0] ?? '' }
+    return shared(doc, trimmed, self)
+  }
   if (!trimmed) return 'Enter a field name.'
   if (/^\.|\.$|\.\./.test(trimmed)) return 'Names cannot start or end with “.” or contain “..”.'
-  if (entries.some((e) => e.key !== entry.key && e.name === trimmed)) return `A field named “${trimmed}” already exists.`
+  const clash = otherFieldNames(doc, entry).find((other) => fieldNamesClash(trimmed, other))
+  if (clash === trimmed) return `A field named “${trimmed}” already exists.`
+  if (clash) return `“${trimmed}” conflicts with the field “${clash}”.`
   return null
 }
 
@@ -308,7 +362,6 @@ export function FieldsPanel() {
             <FieldRow
               key={entry.key}
               entry={entry}
-              entries={entries}
               selected={isSelected(entry, { selectedElement, selectedObjectId })}
               editing={editing === entry.key}
               onEdit={(on) => setEditing(on ? entry.key : null)}
@@ -322,13 +375,11 @@ export function FieldsPanel() {
 
 function FieldRow({
   entry,
-  entries,
   selected,
   editing,
   onEdit
 }: {
   entry: FieldEntry
-  entries: FieldEntry[]
   selected: boolean
   editing: boolean
   onEdit: (on: boolean) => void
@@ -346,7 +397,7 @@ function FieldRow({
       data-selected={selected ? 'true' : 'false'}
     >
       {editing ? (
-        <RenameInput entry={entry} entries={entries} onDone={() => onEdit(false)} />
+        <RenameInput entry={entry} onDone={() => onEdit(false)} />
       ) : (
         <>
           <button
@@ -393,7 +444,7 @@ function FieldRow({
   )
 }
 
-function RenameInput({ entry, entries, onDone }: { entry: FieldEntry; entries: FieldEntry[]; onDone: () => void }) {
+function RenameInput({ entry, onDone }: { entry: FieldEntry; onDone: () => void }) {
   const [value, setValue] = useState(entry.name)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -403,7 +454,8 @@ function RenameInput({ entry, entries, onDone }: { entry: FieldEntry; entries: F
   }, [])
 
   const commit = (): boolean => {
-    const err = validateFieldName(entries, entry, value)
+    const doc = useEditor.getState().doc
+    const err = doc ? validateFieldName(doc, entry, value) : null
     if (err) {
       setError(err)
       inputRef.current?.focus()
@@ -440,7 +492,8 @@ function RenameInput({ entry, entries, onDone }: { entry: FieldEntry; entries: F
         }}
         onBlur={() => {
           // Leaving the field keeps a valid name and discards an invalid one.
-          if (!validateFieldName(entries, entry, value)) commit()
+          const doc = useEditor.getState().doc
+          if (doc && !validateFieldName(doc, entry, value)) commit()
           else onDone()
         }}
       />

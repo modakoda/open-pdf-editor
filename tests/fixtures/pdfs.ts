@@ -789,3 +789,58 @@ export async function makeExistingContentPdf(): Promise<Uint8Array> {
   p2.node.set(PDFName.of('Contents'), ctx.register(ctx.flateStream('q /Page Do Q')))
   return doc.save()
 }
+
+/**
+ * Two 600x800 pages. "keep" (text) on page 1; "gone" (text, value "secret on deleted page")
+ * only on page 2; "split" (text, value "Jane") with one widget on each page (both at 50,700 200x20).
+ */
+export async function makeSplitWidgetsPdf(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create()
+  const p1 = pdf.addPage([600, 800])
+  const p2 = pdf.addPage([600, 800])
+  const form = pdf.getForm()
+  form.createTextField('keep').addToPage(p1, { x: 50, y: 600, width: 200, height: 20 })
+  const gone = form.createTextField('gone')
+  gone.addToPage(p2, { x: 50, y: 600, width: 200, height: 20 })
+  gone.setText('secret on deleted page')
+  const split = form.createTextField('split')
+  split.addToPage(p1, { x: 50, y: 700, width: 200, height: 20 })
+  split.addToPage(p2, { x: 50, y: 700, width: 200, height: 20 })
+  split.setText('Jane')
+  return pdf.save()
+}
+
+/**
+ * One 600x800 page: a centered (/Q 1) Courier FreeText with its own appearance, rich text
+ * (/RC) and DA "/Cour 18 Tf 0 0 0.8 rg" (a0); a sticky note with /RC (a1); a hidden Square (a2).
+ */
+export async function makeStyledFreeTextPdf(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create()
+  const page = pdf.addPage([600, 800])
+  const ctx = pdf.context
+  const cour = await pdf.embedFont(StandardFonts.CourierBold)
+  const ap = ctx.register(
+    ctx.stream('1 1 0.8 rg 0 0 300 60 re f BT /F1 18 Tf 0 0 0.8 rg 60 25 Td (Centered Courier) Tj ET', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 300, 60],
+      Resources: { Font: { F1: cour.ref } }
+    } as never)
+  )
+  const rc = (t: string) => PDFString.of(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml"><p>${t}</p></body>`)
+  const ft = ctx.obj({
+    Type: 'Annot',
+    Subtype: 'FreeText',
+    Rect: [100, 600, 400, 660],
+    Contents: PDFString.of('Centered Courier'),
+    RC: rc('Centered Courier'),
+    DA: PDFString.of('/Cour 18 Tf 0 0 0.8 rg'),
+    Q: 1,
+    C: [1, 1, 0.8],
+    AP: { N: ap }
+  })
+  const sticky = ctx.obj({ Type: 'Annot', Subtype: 'Text', Rect: [450, 700, 470, 720], Contents: PDFString.of('old comment'), RC: rc('old comment') })
+  const hidden = ctx.obj({ Type: 'Annot', Subtype: 'Square', Rect: [10, 10, 50, 50], C: [1, 0, 0], F: 2 })
+  page.node.set(PDFName.of('Annots'), ctx.obj([ctx.register(ft), ctx.register(sticky), ctx.register(hidden)]))
+  return pdf.save()
+}

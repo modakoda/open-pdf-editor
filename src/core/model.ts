@@ -227,6 +227,11 @@ export interface ContentItem {
   angle?: number
   /** Text items: whether replacement text can be written with the original font (otherwise a fallback font is used). */
   editableInPlace?: boolean
+  /**
+   * The item cannot be edited safely (e.g. text in a font whose predefined CMap is not
+   * available, so glyph boundaries/widths are unknown); ContentEdits for it are ignored.
+   */
+  readOnly?: boolean
 }
 
 /** A change to an existing content item (see ContentItem). */
@@ -258,6 +263,8 @@ export interface FieldEdit {
   name?: string
   /** New widget rectangles in page space, aligned with FormFieldInfo.widgets. */
   widgetBoxes?: Box[]
+  /** Indexes (into FormFieldInfo.widgets) of widgets removed without deleting the field. */
+  deletedWidgets?: number[]
   readOnly?: boolean
   required?: boolean
   multiline?: boolean

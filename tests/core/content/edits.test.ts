@@ -480,14 +480,14 @@ describe('editing items inside form XObjects', () => {
     before = await pdfjsText(form)
   })
 
-  it('inlines the form and deletes the inner item', async () => {
+  it('edits a private copy of the form and deletes the inner item', async () => {
     const out = await edit(form, [{ itemId: 'x2/t8', deleted: true }])
     const after = await pdfjsText(out)
     expect(after.map((a) => a.str)).not.toContain('Form body line')
     expectUnchanged(before, after, ['Form body line'])
     expect(await pdfjsImages(out)).toEqual(await pdfjsImages(form))
     const its = await listItems(out)
-    // Inner ids survive inlining; fonts with clashing resource names stay distinct.
+    // The Do keeps its operator index; fonts with clashing resource names stay distinct.
     expect(its.find((i) => i.id === 'x2/t3')?.text).toBe('Form title')
     expect(byText(its, 'Form title').fontName).toBe('Helvetica')
     expect(byText(its, 'Nested form text').fontName).toBe('Times-Roman')
@@ -518,7 +518,8 @@ describe('editing items inside form XObjects', () => {
     const after = await pdfjsText(out)
     const title = after.find((a) => a.str === 'Form title')!
     const t0 = before.find((b) => b.str === 'Form title')!
-    near(title.x, t0.x, 0.01) // the title has its own (total) transform
+    // The title is redrawn inside the form copy, which itself is moved by the form's edit.
+    near(title.x, t0.x + 10, 0.01)
     near(title.y, t0.y + 30, 0.01)
     const body = after.find((a) => a.str === 'Form body line')!
     near(body.x, before.find((b) => b.str === 'Form body line')!.x + 10, 0.01)

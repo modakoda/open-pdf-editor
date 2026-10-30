@@ -16,7 +16,7 @@ import {
   type PDFObject
 } from '@cantoo/pdf-lib'
 import { displayRotation } from './geometry'
-import type { ContentItem, EditObject, EditorDocument, FieldObject, PageEntry, Rotation, SourceDocument } from './model'
+import type { ContentEdit, ContentItem, EditObject, EditorDocument, FieldObject, PageEntry, Rotation, SourceDocument } from './model'
 import { applyContentEdits, listContentItems, stripMarkedContent, type ContentEditHelpers } from './content'
 import { applyAnnotationEdits, removeMarkedAnnotations, tagAnnotations, untagAnnotations } from './annotations'
 import { applyFieldEdits, applyWidgetEditsToPage, createNewFields, removeRestoredFields } from './fieldEdits'
@@ -441,8 +441,10 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
       const form = out.getForm()
       const byName = fieldsByName(form)
       removeRestoredFields(form, byName.values(), restored, origPages)
-      pruneFieldsOnRemovedPages(out, form, origPages, new Set(removedIndices))
+      // Field edits first: their widget indexes refer to the unmodified file, and a field
+      // renamed here and then left without widgets by the page removal is still dropped.
       await applyFieldEdits(out, form, byName, edits, origPages, cache)
+      pruneFieldsOnRemovedPages(out, form, origPages, new Set(removedIndices))
       await fillForm(out, form, values, cache, byName)
       if (primaryClones) await refreshAppearancesForBurning(out, form, cache)
     }
@@ -515,8 +517,8 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   const helpers: ContentEditHelpers = { embedFont: (font) => cache.font(out, font) }
   for (const item of plan) {
     const page = item.page!
-    const contentEdits = doc.contentEdits?.[item.entry.id]
-    if (contentEdits?.length) {
+    const contentEdits = effectiveContentEdits(doc.contentEdits?.[item.entry.id])
+    if (contentEdits.length) {
       if (sharing.has(page)) unshareContents(out, page)
       await applyContentEdits(out, page, visibleBox(page), contentEdits, helpers, restoredIdsOfItem(doc, item))
       afterContentRewrite(page)
@@ -607,6 +609,14 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     objectsPerTick: 500,
     ...(plainWriter ? { useObjectStreams: false } : {})
   })
+}
+
+/** Content edits without those inside a deleted container (item ids "x1/…" when "x1" is deleted). */
+export function effectiveContentEdits(edits: ContentEdit[] | undefined): ContentEdit[] {
+  if (!edits?.length) return []
+  const deleted = edits.filter((e) => e.deleted).map((e) => `${e.itemId}/`)
+  if (!deleted.length) return edits
+  return edits.filter((e) => !deleted.some((prefix) => e.itemId.startsWith(prefix)))
 }
 
 function restoredIdsOfItem(doc: EditorDocument, item: PlanItem): Set<string> {
@@ -709,8 +719,8 @@ export async function renderPagePreview(doc: EditorDocument, pageId: string): Pr
       stripMarkedContent(out, page, ids)
       afterContentRewrite(page)
     }
-    const edits = doc.contentEdits?.[pageId]
-    if (edits?.length) {
+    const edits = effectiveContentEdits(doc.contentEdits?.[pageId])
+    if (edits.length) {
       await applyContentEdits(out, page, visibleBox(page), edits, { embedFont: (f) => cache.font(out, f) }, ids)
     }
     await applyAnnotationEdits(out, page, doc.annotationEdits?.[pageId], cache)

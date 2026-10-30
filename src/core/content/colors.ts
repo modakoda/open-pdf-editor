@@ -28,6 +28,11 @@ export interface ColorState {
   comps: number[]
   /** Pattern name (scn with a name operand). */
   pattern?: string
+  /**
+   * Inherited from the content that drew a form XObject: 'all' = color space and color are the
+   * inherited ones; 'space' = only the color space (its name belongs to the parent's resources).
+   */
+  inherited?: 'all' | 'space'
 }
 
 const GRAY: ColorSpaceInfo = { family: 'gray', n: 1 }

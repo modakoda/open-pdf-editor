@@ -375,9 +375,12 @@ export function getEffectiveFormFields(doc: EditorDocument, sourceId: string): E
       out.push({ ...f, originalName: f.name })
       continue
     }
-    const widgets = edit.widgetBoxes
-      ? f.widgets.map((w, i) => (edit.widgetBoxes![i] ? { ...w, box: edit.widgetBoxes![i] as Box } : w))
-      : f.widgets
+    const deletedWidgets = new Set(edit.deletedWidgets ?? [])
+    const widgets = f.widgets
+      .map((w, i) => (edit.widgetBoxes?.[i] ? { ...w, box: edit.widgetBoxes[i] as Box } : w))
+      .filter((_, i) => !deletedWidgets.has(i))
+    // Deleting the last widget deletes the field.
+    if (f.widgets.length && !widgets.length) continue
     const field: EffectiveFormField = {
       ...f,
       originalName: f.name,
@@ -409,9 +412,10 @@ export function pageNeedsPreview(doc: EditorDocument, pageId: string): boolean {
   if (source?.pageInfo?.[pageIndex]?.restoredObjectIds?.length) return true
   // Deleted fields and moved widgets on this page: pdf.js would still paint the old widgets.
   for (const [name, edit] of Object.entries(doc.fieldEdits?.[sourceId] ?? {})) {
-    if (!edit.deleted && !edit.widgetBoxes) continue
+    if (!edit.deleted && !edit.widgetBoxes && !edit.deletedWidgets?.length) continue
     const widgets = source?.formFields.find((f) => f.name === name)?.widgets ?? []
-    if (widgets.some((w, i) => w.pageIndex === pageIndex && (edit.deleted || !!edit.widgetBoxes?.[i]))) return true
+    const touched = (i: number) => !!edit.deleted || !!edit.widgetBoxes?.[i] || !!edit.deletedWidgets?.includes(i)
+    if (widgets.some((w, i) => w.pageIndex === pageIndex && touched(i))) return true
   }
   return false
 }

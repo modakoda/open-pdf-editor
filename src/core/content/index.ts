@@ -14,6 +14,12 @@
  * (`/OPEObject <</Id (…)>> BDC … EMC`) do not take part in the numbering, so adding or
  * stripping them does not change other ids.
  *
+ * Predefined CJK CMaps (90ms-RKSJ-H, GBK-EUC-H, UniJIS-UCS2-H, …) are loaded through a
+ * synchronous loader: in Node the .bcmap files of pdfjs-dist are read by default; in the
+ * renderer call setCMapLoader(name => bytes | null) (e.g. with preloaded /pdfjs/cmaps/<name>.bcmap
+ * files). Text in fonts whose CMap is unavailable is listed with `readOnly: true` and edits of it
+ * are ignored.
+ *
  * Usage notes for callers:
  * - Call applyContentEdits() before drawing anything else on the page with pdf-lib (pdf-lib
  *   wraps existing content in an extra `q` stream when drawing, which shifts operator indices),
@@ -28,6 +34,8 @@ import { OPE_MARK as MARK, interpret } from './interpreter'
 import { parseContent } from './lexer'
 import { pageResources, readPageContent } from './page'
 import { applyEdits, stripMarked } from './rewrite'
+
+export { setCMapLoader, type CMapLoader } from './cmap'
 
 /** Marked-content tag wrapping drawings of EditObjects: `/OPEObject <</Id (obj_id)>> BDC … EMC`. */
 export const OPE_MARK = MARK
@@ -51,7 +59,7 @@ export function listContentItems(
   const data = readPageContent(page)
   if (!data.length) return []
   const interp = interpret(pdfDoc.context, data, parseContent(data), pageResources(page), { cropBox, skipMarked })
-  return interp.records.filter((r) => !r.hidden).map((r) => r.item)
+  return interp.records.map((r) => r.item)
 }
 
 /**

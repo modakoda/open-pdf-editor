@@ -130,6 +130,8 @@ export function readPageAnnotations(
     if (!subtype || subtype === 'Widget' || subtype === 'Popup') continue
     const mark = objectMark(d)
     if (mark && skipObjects?.has(mark)) continue
+    const flags = d.lookup(N('F'))
+    if (flags instanceof PDFNumber && (flags.asNumber() & (2 | 32)) !== 0) continue // Hidden / NoView
     const rect = rectFromArray(d.lookup(N('Rect')))
     if (!rect) continue
     const info: AnnotationInfo = { id: annotationId(k), subtype, bounds: toPageBox(rect, vb) }
@@ -252,6 +254,33 @@ function borderWidth(d: PDFDict): number {
   const border = nums(d.lookup(N('Border')))
   if (border && border.length >= 3) return border[2]
   return 1
+}
+
+/** Dash pattern operator for /BS /S /D borders ('' for solid). */
+function dashOf(d: PDFDict): string {
+  const bs = d.lookup(N('BS'))
+  if (!(bs instanceof PDFDict) || bs.lookup(N('S')) !== N('D')) return ''
+  const dash = nums(bs.lookup(N('D'))) ?? [3]
+  return `[${dash.map(fmt).join(' ')}] 0 d `
+}
+
+/** Font family / style of a FreeText from its /DA font (name or the /DR font's BaseFont). */
+function freeTextStyle(pdf: PDFDocument, da: string | undefined): { font: 'sans' | 'serif' | 'mono'; bold: boolean; italic: boolean } {
+  const name = da ? /\/([^\s/<>[\]()]+)\s+[-+\d.]+\s+Tf/.exec(da)?.[1] : undefined
+  let base = name ?? ''
+  const acroForm = pdf.catalog.lookup(N('AcroForm'))
+  const dr = acroForm instanceof PDFDict ? acroForm.lookup(N('DR')) : undefined
+  const fonts = dr instanceof PDFDict ? dr.lookup(N('Font')) : undefined
+  const fontDict = name && fonts instanceof PDFDict ? fonts.lookup(N(name)) : undefined
+  const baseFont = fontDict instanceof PDFDict ? fontDict.lookup(N('BaseFont')) : undefined
+  if (baseFont instanceof PDFName) base = `${base} ${baseFont.decodeText()}`
+  const lower = base.toLowerCase()
+  const font = /cour|mono|consol/.test(lower) ? 'mono' : /tiro|tibo|tiit|tibi|times|serif|georgia|garamond/.test(lower) ? 'serif' : 'sans'
+  // Acrobat's short names: HeBo/TiBo/CoBo bold, HeOb/TiIt/CoOb italic, HeBO/TiBI/CoBO both.
+  const short = name ?? ''
+  const bold = /bold|heavy|black/.test(lower) || ['HeBo', 'HeBO', 'TiBo', 'TiBI', 'CoBo', 'CoBO'].includes(short)
+  const italic = /italic|oblique/.test(lower) || ['HeOb', 'HeBO', 'TiIt', 'TiBI', 'CoOb', 'CoBO'].includes(short)
+  return { font, bold, italic }
 }
 
 function opacityGs(ctx: PDFContext, d: PDFDict, blend?: string): { resources: Record<string, unknown>; op: string } {
@@ -432,22 +461,44 @@ export async function regenerateAppearance(pdf: PDFDocument, d: PDFDict, cache: 
       const da = text(d.lookup(N('DA')))
       const size = daFontSize(da) || 12
       const textColor = daColor(da) ?? '#000000'
+      const textCol = componentsFromColor(textColor).map(fmt).join(' ')
       const contents = text(d.lookup(N('Contents'))) ?? ''
-      const style = { font: 'sans' as const, bold: false, italic: false }
+      const style = freeTextStyle(pdf, da)
+      const q = d.lookup(N('Q'))
+      const align = q instanceof PDFNumber && q.asNumber() === 1 ? 'center' : q instanceof PDFNumber && q.asNumber() === 2 ? 'right' : 'left'
+      // /RD: the text box inside the Rect (callouts live in the margin).
+      const rd = nums(d.lookup(N('RD')))
+      const [l, t, r, b] = rd && rd.length === 4 ? rd : [0, 0, 0, 0]
+      const box = { x: l, y: b, w: Math.max(1, w - l - r), h: Math.max(1, h - t - b) }
       const pad = 2 + bw
-      const layout = layoutText({ ...style, text: contents, fontSize: size, lineHeight: 1.2, width: w - 2 * pad, align: 'left' })
+      const layout = layoutText({ ...style, text: contents, fontSize: size, lineHeight: 1.2, width: box.w - 2 * pad, align })
       const font = await cache.font(pdf, prepareText(contents, style).font)
       resources = { Font: { F1: font.ref } }
       let body = ''
       for (const line of layout.lines) {
         if (!line.text) continue
-        const x = pad + line.x
-        const y = h - pad - line.baseline
+        const x = box.x + pad + line.x
+        const y = box.y + box.h - pad - line.baseline
         body += `BT /F1 ${fmt(size)} Tf ${fmt(x)} ${fmt(y)} Td ${font.encodeText(line.text).toString()} Tj ET\n`
       }
-      const bg = col ? `${col} rg 0 0 ${fmt(w)} ${fmt(h)} re f\n` : ''
-      const border = bw > 0 && d.lookup(N('BS')) instanceof PDFDict ? `${componentsFromColor(textColor).map(fmt).join(' ')} RG ${fmt(bw)} w ${fmt(bw / 2)} ${fmt(bw / 2)} ${fmt(w - bw)} ${fmt(h - bw)} re S\n` : ''
-      content = `${bg}${border}${componentsFromColor(textColor).map(fmt).join(' ')} rg\n${body}`
+      const bg = col ? `${col} rg ${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)} re f\n` : ''
+      const hasBorder = bw > 0 && d.lookup(N('BS')) instanceof PDFDict
+      const border = hasBorder
+        ? `${textCol} RG ${fmt(bw)} w ${dashOf(d)}${fmt(box.x + bw / 2)} ${fmt(box.y + bw / 2)} ${fmt(box.w - bw)} ${fmt(box.h - bw)} re S [] 0 d\n`
+        : ''
+      // Callout line (/CL: 2 or 3 points, from the arrow tip to the text box).
+      const cl = nums(d.lookup(N('CL')))
+      let callout = ''
+      if (cl && (cl.length === 4 || cl.length === 6)) {
+        const pts: [number, number][] = []
+        for (let i = 0; i + 1 < cl.length; i += 2) pts.push(local(cl[i], cl[i + 1]))
+        callout = `${textCol} RG ${fmt(Math.max(1, bw))} w ${pts.map(([x, y], i) => `${fmt(x)} ${fmt(y)} ${i ? 'l' : 'm'}`).join(' ')} S\n`
+        const le = d.lookup(N('LE'))
+        if (le instanceof PDFName && (le.decodeText() === 'OpenArrow' || le.decodeText() === 'ClosedArrow')) {
+          callout += arrowHeadPath(pts[1][0], pts[1][1], pts[0][0], pts[0][1], Math.max(6, bw * 4), le.decodeText() === 'ClosedArrow')
+        }
+      }
+      content = `${bg}${border}${callout}${textCol} rg\n${body}`
       break
     }
     default:
@@ -501,13 +552,13 @@ export async function applyAnnotationEdits(
     let regenerate = false
     if (edit.bounds) {
       const from = rectFromArray(d.lookup(N('Rect')))
-      if (from) {
-        moveGeometry(ctx, d, from, toPdfBox(edit.bounds, vb))
-        regenerate ||= subtype === 'FreeText' || subtype === 'Square' || subtype === 'Circle'
-      }
+      // The existing appearance is kept: viewers map it onto the new Rect.
+      if (from) moveGeometry(ctx, d, from, toPdfBox(edit.bounds, vb))
     }
     if (edit.contents !== undefined) {
       d.set(N('Contents'), PDFHexString.fromText(edit.contents))
+      // Rich text would be shown instead of /Contents by Acrobat: it is now stale.
+      d.delete(N('RC'))
       regenerate ||= subtype === 'FreeText'
     }
     if (edit.author !== undefined) d.set(N('T'), PDFHexString.fromText(edit.author))

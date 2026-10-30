@@ -31,9 +31,16 @@ export function NumberInput(props: {
   max?: number
   step?: number
   suffix?: string
+  /** Apply on Enter / blur / spinner steps instead of on every keystroke (expensive changes). */
+  commitOnBlur?: boolean
 }) {
-  const { value, onChange, testId, label, min = -Infinity, max = Infinity, step = 1, suffix } = props
+  const { value, onChange, testId, label, min = -Infinity, max = Infinity, step = 1, suffix, commitOnBlur } = props
   const [draft, setDraft] = useState<string | null>(null)
+  const commit = (raw: string | null) => {
+    if (raw === null) return
+    const n = parseFloat(raw)
+    if (Number.isFinite(n) && Math.abs(n - value) > 1e-9) onChange(Math.min(max, Math.max(min, n)))
+  }
   return (
     <span className="ed-number">
       <input
@@ -46,10 +53,21 @@ export function NumberInput(props: {
         step={step}
         onChange={(e) => {
           setDraft(e.target.value)
+          const typed = (e.nativeEvent as InputEvent).inputType !== undefined && (e.nativeEvent as InputEvent).inputType !== ''
+          if (commitOnBlur && typed) return
           const n = parseFloat(e.target.value)
           if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)))
         }}
-        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (commitOnBlur && e.key === 'Enter') {
+            commit(draft)
+            setDraft(null)
+          }
+        }}
+        onBlur={() => {
+          if (commitOnBlur) commit(draft)
+          setDraft(null)
+        }}
       />
       {suffix && <span className="ed-suffix">{suffix}</span>}
     </span>

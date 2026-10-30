@@ -303,7 +303,11 @@ describe('Edit content', () => {
     const x = screen.getByTestId('prop-x')
     await user.clear(x)
     await user.type(x, '320')
+    // Geometry is applied on Enter / blur, not per digit.
+    expect(t('img')[4]).toBeCloseTo(0)
+    await user.keyboard('{Enter}')
     expect(t('img')[4]).toBeCloseTo(20)
+    expect(t('img')[5]).toBeCloseTo(0)
     await user.click(screen.getByTestId('prop-delete'))
     expect(edit('img')?.deleted).toBe(true)
   })

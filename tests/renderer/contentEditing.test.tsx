@@ -27,7 +27,7 @@ import type { ContentEdit, EditorDocument, FieldObject, FormFieldInfo } from '@c
 import { App } from '@renderer/App'
 import { resetCommandState, runCommand } from '@renderer/actions/commands'
 import { runFind } from '@renderer/actions/find'
-import { collectFields, summarizeValue, validateFieldName } from '@renderer/components/sidebar/FieldsPanel'
+import { collectFields, fieldNamesClash, summarizeValue, validateFieldName } from '@renderer/components/sidebar/FieldsPanel'
 import { PAGE_RENDERED_EVENT } from '@renderer/components/viewer/PageView'
 import { previewKeyFor, releasePreviews } from '@renderer/pdf/previews'
 import { selectionLabel } from '@renderer/state/selectors'
@@ -72,6 +72,33 @@ describe('page previews', () => {
     const restored = makeDoc(1)
     restored.sources.src1 = { ...restored.sources.src1, pageInfo: [{ width: 600, height: 800, rotation: 0, restoredObjectIds: ['o1'] }] }
     expect(previewKeyFor(restored, restored.pages[0])).not.toBeNull()
+  })
+
+  it('includes widget moves / deletions of this page in the fingerprint', () => {
+    const base = formDoc() // fields "name"/"email" on source page 0, "agree" on page 1
+    const withField = (edits: NonNullable<EditorDocument['fieldEdits']>['string']): EditorDocument => ({
+      ...base,
+      fieldEdits: { src1: edits }
+    })
+    const box = (y: number) => ({ x: 50, y, width: 100, height: 20 })
+    const moved1 = withField({ name: { widgetBoxes: [box(150)] } })
+    const moved2 = withField({ name: { widgetBoxes: [box(300)] } })
+    const k1 = previewKeyFor(moved1, moved1.pages[0])
+    const k2 = previewKeyFor(moved2, moved2.pages[0])
+    expect(k1).not.toBeNull()
+    expect(k2).not.toBeNull()
+    expect(k2).not.toBe(k1)
+    // Further edits after the first one also change the key (deleting the widget, the field).
+    const removed = withField({ name: { widgetBoxes: [box(300)], deletedWidgets: [0] } })
+    expect(previewKeyFor(removed, removed.pages[0])).not.toBe(k2)
+    const deleted = withField({ name: { widgetBoxes: [box(300)], deleted: true } })
+    expect(previewKeyFor(deleted, deleted.pages[0])).not.toBe(k2)
+    // Edits of a field on another page do not change this page's key.
+    const other = withField({ name: { widgetBoxes: [box(300)] }, agree: { widgetBoxes: [box(10)] } })
+    expect(previewKeyFor(other, other.pages[0])).toBe(k2)
+    // Renames / option changes do not affect the painted page.
+    const renamed = withField({ name: { widgetBoxes: [box(300)], name: 'full' } })
+    expect(previewKeyFor(renamed, renamed.pages[0])).toBe(k2)
   })
 
   it('renders edited pages from renderPagePreview and the others from their source', async () => {
@@ -188,7 +215,8 @@ function formDoc(): EditorDocument {
 
 describe('fields tab', () => {
   it('collects existing fields and FieldObjects in page order with value summaries', () => {
-    const entries = collectFields(formDoc())
+    const doc = formDoc()
+    const entries = collectFields(doc)
     expect(entries.map((e) => [e.name, e.pageIndex + 1, e.origin])).toEqual([
       ['name', 1, 'existing'],
       ['email', 1, 'existing'],
@@ -198,10 +226,32 @@ describe('fields tab', () => {
     ])
     expect(entries.map(summarizeValue)).toEqual(['Empty', '“a@b.c”', 'Checked', '“Hello there”', 'blue'])
     expect(entries[4].widgetCount).toBe(2)
-    expect(validateFieldName(entries, entries[0], 'email')).toMatch(/already exists/)
-    expect(validateFieldName(entries, entries[0], '  ')).toMatch(/Enter/)
-    expect(validateFieldName(entries, entries[0], 'name')).toBeNull()
-    expect(validateFieldName(entries, entries[0], 'person.first')).toBeNull()
+    expect(validateFieldName(doc, entries[0], 'email')).toMatch(/already exists/)
+    expect(validateFieldName(doc, entries[0], 'notes')).toMatch(/already exists/) // a FieldObject
+    expect(validateFieldName(doc, entries[0], '  ')).toMatch(/Enter/)
+    expect(validateFieldName(doc, entries[0], 'a..b')).toMatch(/“\.\.”/)
+    expect(validateFieldName(doc, entries[0], 'name')).toBeNull()
+    expect(validateFieldName(doc, entries[0], 'person.first')).toBeNull()
+    // Radio buttons of the group being renamed do not clash with each other.
+    expect(validateFieldName(doc, entries[4], 'colour')).toBeNull()
+  })
+
+  it('rejects names that are a dotted prefix of another field (or the other way round)', () => {
+    const doc = formDoc()
+    doc.sources.src1 = { ...doc.sources.src1, formFields: [...doc.sources.src1.formFields, field('person.first', 'text', 0, 500, '')] }
+    const entries = collectFields(doc)
+    const name = entries.find((e) => e.name === 'name')!
+    expect(fieldNamesClash('a', 'a.b')).toBe(true)
+    expect(fieldNamesClash('a.b', 'a')).toBe(true)
+    expect(fieldNamesClash('a', 'ab')).toBe(false)
+    expect(validateFieldName(doc, name, 'person')).toMatch(/conflicts with the field “person\.first”/)
+    expect(validateFieldName(doc, name, 'person.first.middle')).toMatch(/conflicts/)
+    expect(validateFieldName(doc, name, 'email.work')).toMatch(/conflicts with the field “email”/)
+    expect(validateFieldName(doc, name, 'notes.extra')).toMatch(/conflicts/)
+    expect(validateFieldName(doc, name, 'personal')).toBeNull()
+    // Hidden fields (pages not in the document) still reserve their names.
+    doc.sources.src1.formFields.push(field('hidden', 'text', 7, 0, ''))
+    expect(validateFieldName(doc, name, 'hidden')).toMatch(/already exists/)
   })
 
   it('lists fields with type, page and value; clicking selects and scrolls to it', async () => {

@@ -11,13 +11,22 @@ which adds encryption support). Everything runs locally; files never leave your 
 **Pages**: reorder by drag and drop, rotate, delete, duplicate, insert blank pages, insert pages from
 other PDFs (merge), extract pages to a new file, split into several files.
 
-**Content**: add text (Unicode, with bundled Noto fonts for characters outside WinAnsi), replace
-existing text, images, signatures (drawn or typed), rectangles, ellipses, lines, arrows, freehand
-ink, highlights, whiteout, and sticky-note comments. Every object stays movable, resizable and
-editable until you save.
+**Existing content** (Edit content tool): select any text line, image, vector graphic or embedded
+graphic already in the page, then move, resize, rotate, recolor or delete it, or retype text in
+place. Edits change the page itself: deleted or replaced content is removed from the file, not
+covered up.
 
-**Forms**: fill text fields, checkboxes, radio buttons, dropdowns and list boxes; optionally
-flatten them on save.
+**Added content**: text (Unicode, with bundled Noto fonts for characters outside WinAnsi), images,
+signatures (drawn or typed), rectangles, ellipses, lines, arrows, freehand ink, highlights,
+whiteout, and sticky-note comments. Everything you add stays movable and editable, also after
+saving and reopening the file in Open PDF Editor.
+
+**Comments and annotations**: move, resize, delete and edit existing notes, highlights, shapes,
+free text and links.
+
+**Forms**: fill every field type; in Prepare form mode move, resize, rename, delete and configure
+existing fields (required, read-only, multiline, length, font size, options) and add new text,
+checkbox, radio, dropdown, list and signature fields; optionally flatten forms on save.
 
 **Document**: title/author/subject/keywords, watermark, page numbers, password protection (AES-256),
 removing a password from a file you can open, printing.
@@ -27,8 +36,10 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
 
 ### Limitations
 
-- "Whiteout" and "replace text" cover the original content visually; the original text is still
-  in the file. Use them for corrections, not for redacting sensitive data.
+- "Whiteout" only covers content visually. To remove sensitive content, delete it with Edit
+  content (that removes it from the page), and check the result before sharing.
+- Moved, resized or retyped content is drawn on top of the page's other content. Text retyped
+  with characters the original font lacks uses a similar bundled font.
 - Visible signatures are images; cryptographic digital signatures are not created.
 - Bundled Unicode fonts cover Latin, Greek and Cyrillic. CJK text needs a CJK font (not bundled).
 - When pages from several PDFs with forms are merged, forms of the inserted files are flattened,

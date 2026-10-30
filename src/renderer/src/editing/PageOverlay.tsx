@@ -440,6 +440,7 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
       }
       case 'element': {
         if (!pv || pv.kind !== 'element') return
+        previews.ensure(g.ref)
         s.apply((d) => applyElementChange(d, g.ref, g.geom, pv.change))
         return
       }
@@ -452,7 +453,8 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     if (!g.moved && Math.hypot(e.clientX - g.startClient.x, e.clientY - g.startClient.y) < DRAG_THRESHOLD) {
       if (g.kind !== 'ink') return
     }
-    if (!g.moved && g.kind === 'element') previews.ensure(g.ref)
+    // Every move: a render that completes mid-drag drops all previews, re-create ours.
+    if (g.kind === 'element') previews.ensure(g.ref)
     g.moved = true
     const p = toPage(e.clientX, e.clientY)
     if (g.kind === 'ink') {

@@ -5,17 +5,17 @@ import {
   editAnnotation,
   editField,
   getFieldEdit,
+  getFormValue,
+  setFormValue,
   updateObject,
   type Box,
   type EditorDocument,
   type FieldObject
 } from '@core'
 import { useEditor, type ElementRef } from '@renderer/state/store'
-import { boundsOfPoints, placedQuad } from './elementGeometry'
-import { boxChange, CONTENT_KIND_LABELS, editContent, hasEdit, resetElement, type ElementGeom } from './elements'
-import { FIELD_TYPE_LABELS, fieldObjects, validateFieldName, widgetOnValue } from './fields'
+import { boxChange, CONTENT_KIND_LABELS, deleteField, editContent, elementBounds, hasEdit, resetElement, type ElementGeom } from './elements'
+import { currentWidgets, FIELD_TYPE_LABELS, fieldObjects, validateFieldName, widgetOnValue } from './fields'
 import { ensureElementPreview } from './previews'
-import { measureContentText } from './textLayout'
 import { CheckRow, ColorInput, CommitInput, NumberInput, OptionsEditor, Row } from './propControls'
 import { changeElement, deleteSelection } from './selection'
 
@@ -31,6 +31,7 @@ function BoxGrid({ box, onChange, testPrefix = 'prop' }: { box: Box; onChange(b:
             testId={`${testPrefix}-${f}`}
             label={f}
             min={f === 'width' || f === 'height' ? 1 : -10000}
+            commitOnBlur
           />
         </label>
       ))}
@@ -38,7 +39,7 @@ function BoxGrid({ box, onChange, testPrefix = 'prop' }: { box: Box; onChange(b:
   )
 }
 
-function ElementActions({ refEl, canReset }: { refEl: ElementRef; canReset: boolean }) {
+function ElementActions({ refEl, canReset, deleteLabel = 'Delete (Del)' }: { refEl: ElementRef; canReset: boolean; deleteLabel?: string }) {
   const apply = useEditor((s) => s.apply)
   return (
     <div className="ed-prop-actions">
@@ -59,8 +60,8 @@ function ElementActions({ refEl, canReset }: { refEl: ElementRef; canReset: bool
         type="button"
         className="ed-action ed-action-danger"
         data-testid="prop-delete"
-        title="Delete (Del)"
-        aria-label="Delete"
+        title={deleteLabel}
+        aria-label={deleteLabel}
         onClick={() => deleteSelection()}
       >
         <Trash size={16} aria-hidden="true" />
@@ -86,7 +87,7 @@ export function ContentProperties({ refEl, geom }: { refEl: ElementRef & { kind:
     ensureElementPreview(refEl)
     apply((d) => editContent(d, refEl.pageId, refEl.itemId, patch), coalesce ? { coalesceKey: `${key}:${field}` } : undefined)
   }
-  const bounds = boundsOfPoints(placedQuad(item, geom.transform, edit, measureContentText))
+  const bounds = elementBounds(geom)
   return (
     <Panel title={CONTENT_KIND_LABELS[item.kind]} kind="content">
       {item.kind === 'text' && (
@@ -179,6 +180,7 @@ export function FieldProperties({ doc, refEl, geom }: { doc: EditorDocument; ref
   const set = (patch: Parameters<typeof editField>[3], prop: string, coalesce = true) =>
     apply((d) => editField(d, refEl.sourceId, refEl.fieldName, patch), coalesce ? { coalesceKey: `${key}:${prop}` } : undefined)
   const t = field.type
+  const widgetCount = currentWidgets(doc, refEl.sourceId, refEl.fieldName).length
   return (
     <Panel title={FIELD_TYPE_LABELS[t] ?? 'Field'} kind="field">
       <div className="ed-prop-col">
@@ -187,7 +189,7 @@ export function FieldProperties({ doc, refEl, geom }: { doc: EditorDocument; ref
           value={field.name}
           testId="prop-field-name"
           label="Field name"
-          validate={(v) => validateFieldName(doc, v, { kind: 'field', sourceId: refEl.sourceId, originalName: refEl.fieldName })}
+          validate={(v) => validateFieldName(doc, refEl.sourceId, v, refEl.fieldName)}
           onCommit={(v) => set({ name: v.trim() === refEl.fieldName ? undefined : v.trim() }, 'name', false)}
         />
       </div>
@@ -234,16 +236,38 @@ export function FieldProperties({ doc, refEl, geom }: { doc: EditorDocument; ref
             label="Export value"
             validate={(v) => (v.trim() ? null : 'The export value cannot be empty.')}
             onCommit={(v) => {
+              const next = v.trim()
+              const old = widgetOnValue(doc, geom.entry)
+              const src = doc.sources[refEl.sourceId]?.formFields.find((f) => f.name === refEl.fieldName)
               const current = getFieldEdit(doc, refEl.sourceId, refEl.fieldName)?.options
-              const values = field.widgets.map((w, i) => current?.[i] ?? w.onValue ?? field.options?.[i] ?? String(i))
-              values[geom.entry.index] = v.trim()
-              set({ options: values }, 'options', false)
+              const values = (src?.widgets ?? []).map((w, i) => current?.[i] ?? w.onValue ?? src?.options?.[i] ?? String(i))
+              values[geom.entry.index] = next
+              apply((d) => {
+                let out = editField(d, refEl.sourceId, refEl.fieldName, { options: values })
+                // Keep the button checked: the stored value refers to the old export value.
+                if (getFormValue(d, refEl.sourceId, refEl.fieldName) === old) out = setFormValue(out, refEl.sourceId, refEl.fieldName, next)
+                return out
+              })
             }}
           />
         </div>
       )}
       <BoxGrid box={geom.box} onChange={(b) => changeElement(refEl, () => ({ box: b }), `${key}:box`)} />
-      <ElementActions refEl={refEl} canReset={hasEdit(doc, refEl)} />
+      <ElementActions refEl={refEl} canReset={hasEdit(doc, refEl)} deleteLabel={widgetCount > 1 ? 'Delete this widget (Del)' : 'Delete (Del)'} />
+      {widgetCount > 1 && (
+        <button
+          type="button"
+          className="ed-action ed-action-wide ed-action-danger-text"
+          data-testid="prop-delete-field"
+          title="Delete the field with all its widgets"
+          onClick={() => {
+            apply((d) => deleteField(d, refEl.sourceId, refEl.fieldName))
+            useEditor.getState().selectElement(null)
+          }}
+        >
+          <Trash size={15} aria-hidden="true" /> Delete field ({widgetCount} widgets)
+        </button>
+      )}
     </Panel>
   )
 }
@@ -270,7 +294,7 @@ export function FieldObjectRows({ doc, obj }: { doc: EditorDocument; obj: FieldO
           value={obj.name}
           testId="prop-field-name"
           label="Field name"
-          validate={(v) => validateFieldName(doc, v, { kind: 'object', id: obj.id })}
+          validate={(v) => validateFieldName(doc, null, v, obj.id)}
           onCommit={(v) => rename(v.trim())}
         />
       </div>
@@ -328,7 +352,20 @@ export function FieldObjectRows({ doc, obj }: { doc: EditorDocument; obj: FieldO
                 return 'Another button of this group uses this value.'
               return null
             }}
-            onCommit={(v) => set({ exportValue: v.trim() }, 'exportValue', false)}
+            onCommit={(v) => {
+              const next = v.trim()
+              const old = obj.exportValue
+              apply((d) => {
+                let out = updateObject(d, obj.id, { exportValue: next })
+                // A checked radio group refers to the old export value.
+                if (t === 'radio' && old !== undefined) {
+                  for (const o of fieldObjects(out)) {
+                    if (o.fieldType === 'radio' && o.name === obj.name && o.value === old) out = updateObject(out, o.id, { value: next })
+                  }
+                }
+                return out
+              })
+            }}
           />
         </div>
       )}

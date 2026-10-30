@@ -171,6 +171,47 @@ describe('editor store', () => {
   })
 })
 
+describe('existing-element selection', () => {
+  beforeEach(() => resetStores())
+
+  it('switching to Select keeps only an annotation selection', () => {
+    loadDoc(makeDoc(2))
+    editor().setTool('edit-content')
+    editor().selectElement({ kind: 'content', pageId: 'p1', itemId: 'c1' })
+    editor().setTool('select')
+    expect(editor().selectedElement).toBeNull()
+
+    editor().setTool('form-design')
+    editor().selectElement({ kind: 'field', sourceId: 'src1', fieldName: 'f', widgetIndex: 0, pageId: 'p1' })
+    editor().setTool('select')
+    expect(editor().selectedElement).toBeNull()
+
+    editor().selectElement({ kind: 'annotation', pageId: 'p1', annotId: 'a1' })
+    editor().setTool('select')
+    expect(editor().selectedElement).toEqual({ kind: 'annotation', pageId: 'p1', annotId: 'a1' })
+    editor().setTool('edit-content')
+    expect(editor().selectedElement).toBeNull()
+  })
+
+  it('drops a content selection when the item or a container it belongs to is deleted', () => {
+    loadDoc(makeDoc(1))
+    editor().selectElement({ kind: 'content', pageId: 'p1', itemId: 'x1/t3' })
+    editor().apply((d) => ({ ...d, contentEdits: { p1: [{ itemId: 'x10', deleted: true }] } }))
+    expect(editor().selectedElement).not.toBeNull() // "x10" is not a container of "x1/t3"
+    editor().apply((d) => ({ ...d, contentEdits: { p1: [{ itemId: 'x1', deleted: true }] } }))
+    expect(editor().selectedElement).toBeNull()
+  })
+
+  it('drops a field selection when its widget is deleted', () => {
+    loadDoc(makeDoc(1))
+    editor().selectElement({ kind: 'field', sourceId: 'src1', fieldName: 'f', widgetIndex: 1, pageId: 'p1' })
+    editor().apply((d) => ({ ...d, fieldEdits: { src1: { f: { deletedWidgets: [0] } } } }))
+    expect(editor().selectedElement).not.toBeNull()
+    editor().apply((d) => ({ ...d, fieldEdits: { src1: { f: { deletedWidgets: [0, 1] } } } }))
+    expect(editor().selectedElement).toBeNull()
+  })
+})
+
 describe('selectors', () => {
   beforeEach(() => resetStores())
 

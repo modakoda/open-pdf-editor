@@ -32,6 +32,26 @@ export interface WidgetEntry {
   index: number
 }
 
+/**
+ * Current widgets of a field, indexed like the SOURCE FormFieldInfo.widgets (the indexes used by
+ * FieldEdit.widgetBoxes / deletedWidgets and ElementRef.widgetIndex), with edits applied and
+ * deleted widgets left out. Works whether or not getEffectiveFormFields filters deleted widgets.
+ */
+export function currentWidgets(doc: EditorDocument, sourceId: string, originalName: string): { widget: FormFieldWidget; index: number }[] {
+  const src = doc.sources[sourceId]?.formFields.find((f) => f.name === originalName)
+  if (!src) return []
+  const edit = getFieldEdit(doc, sourceId, originalName)
+  if (edit?.deleted) return []
+  const deleted = new Set(edit?.deletedWidgets ?? [])
+  const out: { widget: FormFieldWidget; index: number }[] = []
+  src.widgets.forEach((w, index) => {
+    if (deleted.has(index)) return
+    const box = edit?.widgetBoxes?.[index]
+    out.push({ widget: box ? { ...w, box } : w, index })
+  })
+  return out
+}
+
 /** Widgets of existing fields that sit on `page` (edits applied). */
 export function widgetsOnPage(doc: EditorDocument, page: PageEntry, types?: Set<string>): WidgetEntry[] {
   if (page.source.kind !== 'source') return []
@@ -40,9 +60,9 @@ export function widgetsOnPage(doc: EditorDocument, page: PageEntry, types?: Set<
   const out: WidgetEntry[] = []
   for (const field of effectiveFields(doc, sourceId)) {
     if (types && !types.has(field.type)) continue
-    field.widgets.forEach((widget, index) => {
+    for (const { widget, index } of currentWidgets(doc, sourceId, field.originalName)) {
       if (widget.pageIndex === pageIndex) out.push({ sourceId, field, widget, index })
-    })
+    }
   }
   return out
 }
@@ -57,38 +77,61 @@ export function fieldObjects(doc: EditorDocument): FieldObject[] {
   return doc.objects.filter((o): o is FieldObject => o.type === 'field')
 }
 
-export type FieldSelf = { kind: 'field'; sourceId: string; originalName: string } | { kind: 'object'; id: string }
+/**
+ * AcroForm names are hierarchical: "a" and "a.b" cannot both be fields (the engine rejects
+ * this on save), so names clash when equal or when one is a dotted prefix of the other.
+ */
+export function namesClash(a: string, b: string): boolean {
+  return a === b || b.startsWith(a + '.') || a.startsWith(b + '.')
+}
 
-/** Names in use by existing fields (all sources) and FieldObjects, excluding `self`. */
-export function usedFieldNames(doc: EditorDocument, self?: FieldSelf): Set<string> {
-  const names = new Set<string>()
-  for (const sourceId of Object.keys(doc.sources)) {
-    for (const f of effectiveFields(doc, sourceId)) {
-      if (self?.kind === 'field' && self.sourceId === sourceId && self.originalName === f.originalName) continue
-      names.add(f.name)
+/**
+ * Names in use by effective fields of the primary source (and of `sourceId`) plus FieldObjects,
+ * excluding the field being renamed: `selfKey` is its original name when `sourceId` is given,
+ * else the FieldObject id (radio buttons of the same group share their name).
+ */
+export function fieldNamesInUse(doc: EditorDocument, sourceId: string | null, selfKey: string | null): string[] {
+  const names: string[] = []
+  const sources = new Set([doc.primarySourceId, sourceId].filter((s): s is string => !!s))
+  for (const sid of sources) {
+    for (const f of effectiveFields(doc, sid)) {
+      if (sourceId !== null && sid === sourceId && f.originalName === selfKey) continue
+      names.push(f.name)
     }
   }
-  const selfObj = self?.kind === 'object' ? doc.objects.find((o) => o.id === self.id) : undefined
+  const selfObj = sourceId === null && selfKey ? doc.objects.find((o) => o.id === selfKey) : undefined
   for (const o of fieldObjects(doc)) {
-    if (self?.kind === 'object' && o.id === self.id) continue
-    // Radio buttons of the same group share their name.
+    if (sourceId === null && o.id === selfKey) continue
     if (selfObj?.type === 'field' && selfObj.fieldType === 'radio' && o.fieldType === 'radio' && o.name === selfObj.name) continue
-    names.add(o.name)
+    names.push(o.name)
   }
   return names
 }
 
-export function uniqueName(prefix: string, used: Set<string>): string {
-  for (let n = 1; ; n++) if (!used.has(`${prefix}${n}`)) return `${prefix}${n}`
+export function isNameTaken(name: string, used: Iterable<string>): boolean {
+  for (const u of used) if (namesClash(name, u)) return true
+  return false
 }
 
-/** Error message for an invalid new field name, or null when it can be used. */
-export function validateFieldName(doc: EditorDocument, name: string, self: FieldSelf): string | null {
-  const trimmed = name.trim()
-  if (!trimmed) return 'The name cannot be empty.'
-  if (trimmed.startsWith('.') || trimmed.endsWith('.') || trimmed.includes('..')) return 'Invalid name.'
-  if (usedFieldNames(doc, self).has(trimmed)) return `A field named “${trimmed}” already exists.`
+/**
+ * Error message when `newName` cannot be used for a field, or null. Shared by the properties
+ * panel and the workspace's fields list. `sourceId` + original name identify an existing field;
+ * `sourceId` null + object id identify a FieldObject; `selfKey` null validates a brand-new name.
+ */
+export function validateFieldName(doc: EditorDocument, sourceId: string | null, newName: string, selfKey: string | null): string | null {
+  const name = newName.trim()
+  if (!name) return 'The name cannot be empty.'
+  if (name.startsWith('.') || name.endsWith('.') || name.includes('..')) return 'Invalid name.'
+  for (const u of fieldNamesInUse(doc, sourceId, selfKey)) {
+    if (u === name) return `A field named “${name}” already exists.`
+    if (namesClash(name, u)) return `“${name}” conflicts with the field “${u}” (one name cannot be a prefix of the other followed by “.”).`
+  }
   return null
+}
+
+export function uniqueName(prefix: string, used: Iterable<string>): string {
+  const list = [...used]
+  for (let n = 1; ; n++) if (!isNameTaken(`${prefix}${n}`, list)) return `${prefix}${n}`
 }
 
 export const FIELD_TOOL_TYPES: Partial<Record<ToolId, NewFieldType>> = {
@@ -136,7 +179,7 @@ export function makeFieldObject(
   box: Box,
   joinGroup?: string | null
 ): FieldObject {
-  const used = usedFieldNames(doc)
+  const used = fieldNamesInUse(doc, null, null)
   const base = { id: newObjectId(), pageId, type: 'field' as const, fieldType, ...box, fontSize: 0 }
   switch (fieldType) {
     case 'radio': {
@@ -148,7 +191,9 @@ export function makeFieldObject(
           .map((o) => o.exportValue ?? '')
       )
       const sibling = fieldObjects(doc).find((o) => o.fieldType === 'radio' && o.name === name)
-      return { ...base, name, exportValue: uniqueName('Choice', values), value: sibling?.value ?? '' }
+      let n = 1
+      while (values.has(`Choice${n}`)) n++
+      return { ...base, name, exportValue: `Choice${n}`, value: sibling?.value ?? '' }
     }
     case 'checkbox':
       return { ...base, name: uniqueName(PREFIX.checkbox, used), exportValue: 'Yes', value: false }

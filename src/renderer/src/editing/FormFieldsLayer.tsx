@@ -5,7 +5,6 @@
  */
 import { memo, useMemo, type CSSProperties } from 'react'
 import {
-  getFieldEdit,
   getFormValue,
   setFormValue,
   type Box,
@@ -14,7 +13,7 @@ import {
   type PageEntry
 } from '@core'
 import { useEditor, type ElementRef } from '@renderer/state/store'
-import { FIELD_TYPE_LABELS, FILLABLE_TYPES, widgetOnValue, widgetsOnPage, type WidgetEntry } from './fields'
+import { currentWidgets, FIELD_TYPE_LABELS, FILLABLE_TYPES, widgetOnValue, widgetsOnPage, type WidgetEntry } from './fields'
 
 export type FieldMode = 'fill' | 'design' | 'static'
 
@@ -37,7 +36,11 @@ export interface FieldInputProps {
   onValue?: string
   /** `name` attribute grouping radio inputs. */
   group: string
-  /** pdf.js still paints this widget on the canvas: keep the input but make it invisible. */
+  /**
+   * pdf.js paints this widget on the canvas (read-only text in the SOURCE file): when the field
+   * is still read-only the input is invisible (the canvas shows it); when it was made editable
+   * the input covers the painted copy.
+   */
   painted?: boolean
   interactive: boolean
   attrs?: Record<string, string>
@@ -78,7 +81,7 @@ export const FieldInput = memo(function FieldInput(p: FieldInputProps) {
       const text = typeof p.value === 'string' ? p.value : ''
       const multiline = !!p.multiline
       const s = { ...style, fontSize: size(multiline), ...(multiline ? {} : { lineHeight: `${box.height * scale}px` }) }
-      const painted = p.painted ? ' ed-field-painted' : ''
+      const painted = p.painted ? (p.readOnly ? ' ed-field-painted' : ' ed-field-cover') : ''
       return multiline ? (
         <textarea
           {...common}
@@ -218,11 +221,9 @@ function paintedWidgetBoxes(doc: EditorDocument, page: PageEntry): Map<string, B
   for (const f of doc.sources[sourceId]?.formFields ?? []) {
     const painted = f.type === 'checkbox' || f.type === 'radio' || (f.type === 'text' && f.readOnly)
     if (!painted) continue
-    const edit = getFieldEdit(doc, sourceId, f.name)
-    if (edit?.deleted) continue
-    f.widgets.forEach((w, i) => {
-      if (w.pageIndex === pageIndex) out.set(`${f.name}#${i}`, edit?.widgetBoxes?.[i] ?? w.box)
-    })
+    for (const { widget, index } of currentWidgets(doc, sourceId, f.name)) {
+      if (widget.pageIndex === pageIndex) out.set(`${f.name}#${index}`, widget.box)
+    }
   }
   return out
 }
@@ -244,6 +245,11 @@ export function staleWidgetMasks(doc: EditorDocument, rendered: EditorDocument, 
     if (!cur || !sameBox(cur, box)) out.push(box)
   }
   return out
+}
+
+/** pdf.js decides what to paint from the file, not from our edits. */
+function sourceReadOnly(doc: EditorDocument, e: WidgetEntry): boolean {
+  return !!doc.sources[e.sourceId]?.formFields.find((f) => f.name === e.field.originalName)?.readOnly
 }
 
 export function fieldRefOf(entry: WidgetEntry, pageId: string): ElementRef {
@@ -325,7 +331,7 @@ export function FormFieldsLayer({
               fontSize={e.field.fontSize}
               onValue={widgetOnValue(doc, e)}
               group={`${e.sourceId}:${e.field.originalName}:${page.id}`}
-              painted={e.field.type === 'text' && e.field.readOnly}
+              painted={e.field.type === 'text' && sourceReadOnly(doc, e)}
               interactive={mode === 'fill'}
               attrs={{ 'data-original-name': e.field.originalName, 'data-widget-index': String(e.index) }}
               onChange={(v) =>

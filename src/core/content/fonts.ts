@@ -11,7 +11,7 @@
 import fontkit from '@cantoo/fontkit'
 import { PDFArray, PDFDict, PDFName, PDFStream, StandardFontEmbedder, type PDFContext, type PDFObject } from '@cantoo/pdf-lib'
 import type { FontFamily, Matrix } from '../model'
-import { CMap, ToUnicodeMap } from './cmap'
+import { CMap, ToUnicodeMap, builtinCMap, builtinUnicodeMap } from './cmap'
 import { ENCODE_PREFERENCE, baseEncoding, glyphToUnicode } from './glyphs'
 import {
   arrayItems,
@@ -25,7 +25,8 @@ import {
   nameOf,
   numberArray,
   numberOf,
-  streamData
+  streamData,
+  stringBytes
 } from './pdfobj'
 
 export interface Glyph {
@@ -64,6 +65,11 @@ export interface FontInfo {
   italic: boolean
   /** Replacement text can be encoded with this font (simple, non-subset, known encoding). */
   editable: boolean
+  /**
+   * The character code → glyph mapping is not known (a predefined CMap that could not be
+   * loaded): glyph boundaries and widths are guesses, so layout-dependent edits are unsafe.
+   */
+  encodingUnknown: boolean
   glyphs(bytes: Uint8Array): Glyph[]
   /** Encode text (no line breaks) with this font; null if a character cannot be encoded. */
   encode(text: string): Uint8Array | null
@@ -187,6 +193,12 @@ function guessStyle(
 // ---------------------------------------------------------------------------------------
 // Shared helpers
 
+function stringOf(o: PDFObject | undefined): string | undefined {
+  const b = stringBytes(o)
+  if (b) return String.fromCharCode(...b)
+  return nameOf(o)
+}
+
 function stripSubset(name: string): { name: string; subset: boolean } {
   const m = /^[A-Z]{6}\+(.*)$/.exec(name)
   return m ? { name: m[1], subset: true } : { name, subset: false }
@@ -251,6 +263,10 @@ function type1BuiltinEncoding(descriptor: PDFDict | undefined): string[] | undef
 // ---------------------------------------------------------------------------------------
 // Simple fonts
 
+interface FontkitGlyphs {
+  hasGlyphForCodePoint(cp: number): boolean
+}
+
 class SimpleFont implements FontInfo {
   baseFont: string
   name: string
@@ -268,7 +284,10 @@ class SimpleFont implements FontInfo {
   bold: boolean
   italic: boolean
   editable: boolean
+  encodingUnknown = false
   private names: string[]
+  private fontFile: { data?: Uint8Array; font?: FontkitGlyphs | null } | undefined
+  private nonSymbolic = true
   private widths = new Float64Array(256)
   private hasWidth = new Uint8Array(256)
   private unicodes: string[] = new Array(256)
@@ -290,6 +309,8 @@ class SimpleFont implements FontInfo {
     const std = this.standard ? afm(this.standard) : null
     const flags = getNumber(descriptor, 'Flags') ?? 0
     this.isDingbats = this.standard === 'ZapfDingbats'
+    this.nonSymbolic = !(flags & FLAG_SYMBOLIC)
+    if (this.embedded) this.fontFile = { data: streamData(getStream(descriptor, 'FontFile2') ?? getStream(descriptor, 'FontFile3')) }
 
     // Font matrix (Type3) → scale of glyph space widths.
     let fontMatrix: Matrix = [0.001, 0, 0, 0.001, 0, 0]
@@ -433,6 +454,28 @@ class SimpleFont implements FontInfo {
     return out
   }
 
+  /** Whether the embedded font program (TrueType/OpenType) has a glyph for the character. */
+  private programHasGlyph(u: string): boolean {
+    if (!this.fontFile) return true
+    if (this.fontFile.font === undefined) {
+      this.fontFile.font = null
+      const data = this.fontFile.data
+      if (data && this.nonSymbolic) {
+        try {
+          const created = fontkit.create(data as never) as unknown
+          const font = (created as { fonts?: unknown[] }).fonts ? (created as { fonts: unknown[] }).fonts[0] : created
+          if (font && typeof (font as FontkitGlyphs).hasGlyphForCodePoint === 'function') this.fontFile.font = font as FontkitGlyphs
+        } catch {
+          this.fontFile.font = null
+        }
+      }
+    }
+    const f = this.fontFile.font
+    if (!f) return true
+    const cp = u.codePointAt(0)!
+    return u === ' ' || f.hasGlyphForCodePoint(cp)
+  }
+
   encode(text: string): Uint8Array | null {
     if (!this.editable) return null
     if (!this.reverse) {
@@ -442,9 +485,12 @@ class SimpleFont implements FontInfo {
         const u = this.unicodes[code]
         const name = this.names[code]
         if (!u || !name || this.reverse.has(u)) continue
-        // The glyph must exist in the font: known width (standard fonts: in the AFM).
+        // The glyph must exist in the font: known, non-zero width (Word writes 0 for codes it
+        // did not use), in the AFM for standard fonts, in the embedded program if parseable.
         if (!this.hasWidth[code]) continue
+        if (!(this.widths[code] > 0) && u !== ' ') continue
         if (std && std.getWidthOfGlyph(name) === undefined) continue
+        if (!this.programHasGlyph(u)) continue
         this.reverse.set(u, code)
       }
     }
@@ -478,8 +524,10 @@ class CompositeFont implements FontInfo {
   bold: boolean
   italic: boolean
   editable = false
+  encodingUnknown = false
   private cmap: CMap
   private ucs2: boolean
+  private cidUnicode: ToUnicodeMap | null = null
   private toUnicode?: ToUnicodeMap
   private dw: number
   private w = new Map<number, number>()
@@ -518,13 +566,26 @@ class CompositeFont implements FontInfo {
         cmap = undefined
       }
       this.cmap = cmap ?? CMap.identity(false)
+      this.encodingUnknown = !cmap || cmap.incomplete
       const wmode = getNumber(enc.dict, 'WMode')
       if (wmode === 1) this.cmap.vertical = true
     } else {
-      this.cmap = CMap.identity(!!encName && encName.endsWith('-V'))
+      // Predefined CMap (90ms-RKSJ-H, GBK-EUC-H, UniJIS-UCS2-H, …) via the CMap loader.
+      const builtin = encName ? builtinCMap(encName) : null
+      this.cmap = builtin && !builtin.incomplete ? builtin : CMap.identity(!!encName && encName.endsWith('-V'))
+      this.encodingUnknown = !builtin || builtin.incomplete
     }
     this.vertical = this.cmap.vertical
     this.toUnicode = readToUnicode(dict)
+    if (!this.toUnicode && !this.ucs2) {
+      // Character collections with a predefined CID → Unicode map (pdf.js does the same).
+      const info = getDict(desc, 'CIDSystemInfo')
+      const reg = info ? stringOf(get(info, 'Registry')) : undefined
+      const ord = info ? stringOf(get(info, 'Ordering')) : undefined
+      if (reg === 'Adobe' && ord && ['GB1', 'CNS1', 'Japan1', 'Korea1'].includes(ord)) {
+        this.cidUnicode = builtinUnicodeMap(`Adobe-${ord}-UCS2`)
+      }
+    }
 
     this.dw = getNumber(desc, 'DW') ?? 1000
     const wArr = getArray(desc, 'W')
@@ -601,6 +662,8 @@ class CompositeFont implements FontInfo {
 
   private fallbackUnicode(code: number, cid: number): string {
     if (this.ucs2) return String.fromCharCode(code)
+    const viaCid = this.cidUnicode?.get(cid)
+    if (viaCid) return viaCid
     if (this.gidToUnicode === undefined) this.gidToUnicode = this.buildGidMap()
     if (this.gidToUnicode) {
       let gid = cid

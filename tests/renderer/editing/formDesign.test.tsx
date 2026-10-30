@@ -279,8 +279,10 @@ describe('selection across tools', () => {
     setTool('form-design')
     click(fieldBox('name'), { x: 200, y: 90 })
     expect(store().selectedElement?.kind).toBe('field')
-    setTool('select')
-    expect(store().selectedElement?.kind).toBe('field') // select keeps the selection
+    setTool('select') // each tool only keeps its own kind of selection
+    expect(store().selectedElement).toBeNull()
+    setTool('form-design')
+    click(fieldBox('name'), { x: 200, y: 90 })
     setTool('edit-content')
     expect(store().selectedElement).toBeNull()
   })

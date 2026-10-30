@@ -21,6 +21,7 @@ import {
 } from '@core'
 import { useEditor, type PendingImage, type ToolOptions } from '@renderer/state/store'
 import { useEditing } from './editingState'
+import { fieldNamesInUse, isNameTaken } from './fields'
 import { inkBounds, translateObject } from './manip'
 
 /** Sticky note icon size in points (same as the exported /Text annotation). */
@@ -211,14 +212,10 @@ function duplicateFieldNaming(doc: EditorDocument, f: FieldObject): Partial<Fiel
     while (used.has(`Choice${n}`)) n++
     return { exportValue: `Choice${n}` }
   }
-  const used = new Set<string>([
-    ...doc.objects.filter((o): o is FieldObject => o.type === 'field').map((o) => o.name),
-    ...Object.values(doc.sources).flatMap((src) => src.formFields.map((ff) => ff.name)),
-    ...Object.values(doc.fieldEdits ?? {}).flatMap((edits) => Object.values(edits).map((e) => e.name ?? ''))
-  ])
+  const used = fieldNamesInUse(doc, null, null)
   const base = f.name.replace(/\d+$/, '') || 'Field'
   let n = 1
-  while (used.has(`${base}${n}`)) n++
+  while (isNameTaken(`${base}${n}`, used)) n++
   return { name: `${base}${n}` }
 }
 

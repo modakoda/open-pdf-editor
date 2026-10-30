@@ -244,6 +244,10 @@
   background: transparent;
   color: transparent;
 }
+.ed-field.ed-field-cover {
+  /* Covers the read-only copy pdf.js paints for a field that was made editable. */
+  background: linear-gradient(rgba(219, 234, 254, 0.55), rgba(219, 234, 254, 0.55)), #ffffff;
+}
 .ed-field-multiline {
   resize: none;
   padding: 2px;

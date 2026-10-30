@@ -4,7 +4,7 @@ import { StickyNote } from 'lucide-react'
 import { NOTE_ICON_SIZE, type AnnotationInfo, type ContentItem, type EditorDocument, type PageEntry } from '@core'
 import { useEditor, type ElementRef } from '@renderer/state/store'
 import { apply as applyMatrix, invert, matrixAngle, multiply, placedRect, verticalScale, type RotRect } from './elementGeometry'
-import { CONTENT_KIND_LABELS, editContent, effectiveTransform, refKey, type ElementChange } from './elements'
+import { CONTENT_KIND_LABELS, editContent, effectiveTransform, isContentDeleted, refKey, type ElementChange } from './elements'
 import { ensureElementPreview } from './previews'
 import { fontStack, isUnicodeText, measureContentText } from './textLayout'
 
@@ -29,8 +29,8 @@ export function contentItemRect(
   item: ContentItem,
   live?: { ref: ElementRef; change: ElementChange } | null
 ): RotRect | null {
+  if (isContentDeleted(doc, pageId, item.id)) return null
   const edit = doc.contentEdits?.[pageId]?.find((e) => e.itemId === item.id)
-  if (edit?.deleted) return null
   let t = effectiveTransform(doc, pageId, item.id)
   if (live?.ref.kind === 'content' && 'transform' in live.change) {
     if (live.ref.itemId === item.id) t = live.change.transform

@@ -1,22 +1,43 @@
 /**
- * Rewriting page content: applying ContentEdits, inlining form XObjects, stripping
- * OPEObject sections. Untouched operations are copied byte-for-byte.
+ * Rewriting page content: applying ContentEdits, stripping OPEObject sections. Untouched
+ * operations are copied byte-for-byte.
  *
  * Moved / re-typed / re-sized / re-colored items are removed from their place and redrawn at
- * the end of the page in a self-contained block (`q` + the graphics state they need + the
+ * the end of their content in a self-contained block (`q` + the graphics state they need + the
  * original operators + `Q`); the original content is wrapped in `q … Q` (with missing `Q`/`ET`
- * added and stray `Q` removed) so the blocks start from the default graphics state. The
- * clipping paths in effect for a moved item are redrawn transformed together with the item, so
- * it looks the same at its new place. Paths whose only change is the color are re-colored in
- * place (keeps their stacking order).
+ * added and stray `Q` removed) so the blocks start from the initial graphics state. In a block:
+ * - the clipping paths in effect for the item are redrawn transformed together with the item;
+ * - ExtGStates are applied in the coordinate system they were originally applied in (moved
+ *   with the item), so soft masks keep their place relative to the item;
+ * - pattern colors are re-anchored (a copy of the pattern with /Matrix × the move), so the
+ *   pattern moves with the item;
+ * - enclosing optional-content sections (`/OC /name BDC`) are re-applied.
+ * Paths whose only change is the color are re-colored in place (keeps their stacking order).
+ *
+ * Items inside a form XObject are edited in a private copy of the form (its /Group, /Matrix,
+ * /BBox, resources, pattern space and structure are kept), registered under a fresh name, and
+ * the one `Do` that drew the item is pointed at the copy (recursively for nested forms). Other
+ * uses of the form are untouched. Blocks of a copy are drawn inside the form, so transforms of
+ * inner items compose with an edit of the form item itself.
  */
-import { PDFDict, PDFName, PDFRef, PDFStream, type PDFDocument, type PDFFont, type PDFPage } from '@cantoo/pdf-lib'
+import {
+  PDFArray,
+  PDFDict,
+  PDFName,
+  PDFRawStream,
+  PDFRef,
+  PDFStream,
+  type PDFContext,
+  type PDFDocument,
+  type PDFFont,
+  type PDFPage
+} from '@cantoo/pdf-lib'
 import type { PdfBox } from '../geometry'
 import type { ContentEdit, Matrix } from '../model'
 import { fontMetrics, prepareText, type ResolvedTextFont } from '../text'
 import { parseHex, type ColorState } from './colors'
 import {
-  OPE_INLINE,
+  formStartState,
   interpret,
   opeObjectId,
   type GState,
@@ -25,11 +46,11 @@ import {
   type TextState
 } from './interpreter'
 import { PdfName, PdfStr, isWhite, parseContent, type Op, type Operand } from './lexer'
-import { IDENTITY, apply, mul, pageTransformToUser, translate } from './matrix'
+import { IDENTITY, apply, invert, mul, pageTransformToUser, rectOfPoints, transformRect, translate, type Rect } from './matrix'
 import { ResourceEditor, pageResources, readPageContent, writePageContent } from './page'
 import { writePath } from './paths'
 import { get, getDict, getMatrix, numberArray, resolve, streamData } from './pdfobj'
-import { ByteWriter, fmt, writeHexBytes, writeMatrix, writeName, writeOp, writeOperand, writeTextString } from './serialize'
+import { ByteWriter, fmt, writeHexBytes, writeMatrix, writeName, writeOp, writeOperand } from './serialize'
 
 export interface EditHelpers {
   embedFont(font: ResolvedTextFont): Promise<PDFFont>
@@ -38,20 +59,13 @@ export interface EditHelpers {
 type Replacement = string | Uint8Array | null
 
 const RESET_OPS = new Set(['Td', 'TD', 'Tm', 'T*', "'", '"', 'BT', 'ET'])
+/** Nesting levels of form XObject copies. */
+const MAX_FORM_DEPTH = 8
 
 function latin1(bytes: Uint8Array): string {
   let s = ''
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
   return s
-}
-
-function opBytes(interp: Interpretation, k: number): Uint8Array {
-  const op = interp.ops[k]
-  return interp.data.subarray(op.start, op.end)
-}
-
-function opText(interp: Interpretation, k: number): string {
-  return latin1(opBytes(interp, k))
 }
 
 function isIdentity(m: Matrix | undefined): boolean {
@@ -117,31 +131,157 @@ function emitAll(interp: Interpretation, plan: Map<number, Replacement>, skip?: 
 }
 
 // ---------------------------------------------------------------------------------------
-// Graphics state re-emission
+// Context of one content stream being edited (the page, or a form XObject copy)
 
-function colorOps(c: ColorState, stroke: boolean): string {
-  const comps = c.comps.map((v) => fmt(v)).join(' ')
-  if (c.device) {
-    const op = c.space === 'DeviceGray' ? 'g' : c.space === 'DeviceRGB' ? 'rg' : 'k'
-    return `${comps} ${stroke ? op.toUpperCase() : op}\n`
-  }
-  let s = `${writeName(c.space)} ${stroke ? 'CS' : 'cs'}\n`
-  if (comps || c.pattern) s += `${comps}${c.pattern ? (comps ? ' ' : '') + writeName(c.pattern) : ''} ${stroke ? 'SCN' : 'scn'}\n`
-  return s
+interface Session {
+  ctx: PDFContext
+  cropBox: PdfBox
+  skipMarked?: Set<string>
+  helpers: EditHelpers
 }
 
-/** `q`, clipping paths (moved by U), CTM × U, ExtGStates, line state, colors. */
-function blockHead(gs: GState, U: Matrix): string {
-  let s = 'q\n'
-  for (const c of gs.clips) s += writePath(c.segs, U) + (c.evenOdd ? '\nW* n\n' : '\nW n\n')
-  s += `${writeMatrix(mul(gs.ctm, U))} cm\n`
-  for (const n of gs.gsNames) s += `${writeName(n)} gs\n`
-  const dash = gs.dash ? `${writeOperand(gs.dash[0])} ${writeOperand(gs.dash[1])}` : '[] 0'
-  s += `${fmt(gs.lw)} w ${fmt(gs.lc)} J ${fmt(gs.lj)} j ${fmt(gs.ml)} M ${dash} d\n`
-  if (gs.ri) s += `${writeName(gs.ri)} ri\n`
-  if (gs.flat !== null) s += `${fmt(gs.flat)} i\n`
-  s += colorOps(gs.fill, false) + colorOps(gs.stroke, true)
-  return s
+interface Target {
+  data: Uint8Array
+  res: ResourceEditor
+  /** Graphics state at the start of the content (forms: inherited from the Do). */
+  startGs?: GState
+  /** Content space → page user space (identity for the page) and its inverse. */
+  base: Matrix
+  baseInv: Matrix
+  /** Form copies: the original /BBox (in form space). */
+  bbox?: number[]
+  depth: number
+}
+
+class Emitter {
+  /** Do operations re-pointed at private form copies. */
+  readonly overrides = new Map<number, string>()
+  private patterns = new Map<string, string>()
+  private fontNames = new Map<PDFRef, string>()
+
+  constructor(
+    readonly s: Session,
+    readonly t: Target,
+    readonly interp: Interpretation
+  ) {}
+
+  opText(k: number): string {
+    const o = this.overrides.get(k)
+    if (o !== undefined) return o
+    const op = this.interp.ops[k]
+    return latin1(this.interp.data.subarray(op.start, op.end))
+  }
+
+  opBytes(k: number): Uint8Array {
+    const o = this.overrides.get(k)
+    if (o !== undefined) {
+      const w = new ByteWriter()
+      w.text(o)
+      return w.toBytes()
+    }
+    const op = this.interp.ops[k]
+    return this.interp.data.subarray(op.start, op.end)
+  }
+
+  /** A page-space edit transform expressed in this content's space (for pattern matrices). */
+  contentTransform(U: Matrix): Matrix {
+    return mul(mul(this.t.base, U), this.t.baseInv)
+  }
+
+  /** A copy of pattern `name` re-anchored by `M` (pattern space → content space), cached. */
+  private movedPattern(name: string, M: Matrix): string {
+    if (isIdentity(M)) return name
+    const key = `${name}|${M.join(',')}`
+    const cached = this.patterns.get(key)
+    if (cached) return cached
+    const ctx = this.s.ctx
+    const obj = resolve(ctx, this.t.res.get('Pattern', name))
+    let clone: PDFDict | PDFRawStream | undefined
+    if (obj instanceof PDFRawStream) {
+      clone = PDFRawStream.of(obj.dict.clone(ctx), obj.contents, obj.transform)
+    } else if (obj instanceof PDFDict) {
+      clone = obj.clone(ctx)
+    }
+    if (!clone) return name
+    const dict = clone instanceof PDFRawStream ? clone.dict : clone
+    const P = getMatrix(dict, 'Matrix') ?? IDENTITY
+    dict.set(PDFName.of('Matrix'), ctx.obj(mul(P, M)))
+    const fresh = this.t.res.freshName('Pattern', `${name}_m`)
+    this.t.res.set('Pattern', fresh, ctx.register(clone))
+    this.patterns.set(key, fresh)
+    return fresh
+  }
+
+  private colorOps(c: ColorState, stroke: boolean, M: Matrix): string {
+    if (c.inherited === 'all') return ''
+    const comps = c.comps.map((v) => fmt(v)).join(' ')
+    if (c.device) {
+      const op = c.space === 'DeviceGray' ? 'g' : c.space === 'DeviceRGB' ? 'rg' : 'k'
+      return `${comps} ${stroke ? op.toUpperCase() : op}\n`
+    }
+    const pattern = c.pattern ? this.movedPattern(c.pattern, M) : undefined
+    let s = c.inherited === 'space' ? '' : `${writeName(c.space)} ${stroke ? 'CS' : 'cs'}\n`
+    if (comps || pattern) s += `${comps}${pattern ? (comps ? ' ' : '') + writeName(pattern) : ''} ${stroke ? 'SCN' : 'scn'}\n`
+    return s
+  }
+
+  /**
+   * `q`, clipping paths (moved by U), ExtGStates (each in its own coordinate system, moved by
+   * U), CTM × U, line state, colors. U is in page user space.
+   */
+  head(gs: GState, U: Matrix): string {
+    const toContent = mul(U, this.t.baseInv)
+    let s = 'q\n'
+    for (const c of gs.clips) s += writePath(c.segs, toContent) + (c.evenOdd ? '\nW* n\n' : '\nW n\n')
+    // `cur` stays invertible: singular intermediate targets are skipped.
+    let cur: Matrix = IDENTITY
+    const moveTo = (target: Matrix, required: boolean) => {
+      if (!required && !invert(target)) return
+      const delta = mul(target, invert(cur)!)
+      if (!isIdentity(delta)) s += `${writeMatrix(delta)} cm\n`
+      cur = target
+    }
+    for (const g of gs.gsNames) {
+      moveTo(mul(g.ctm, toContent), false)
+      s += `${writeName(g.name)} gs\n`
+    }
+    moveTo(mul(gs.ctm, toContent), true)
+    const dash = gs.dash ? `${writeOperand(gs.dash[0])} ${writeOperand(gs.dash[1])}` : '[] 0'
+    s += `${fmt(gs.lw)} w ${fmt(gs.lc)} J ${fmt(gs.lj)} j ${fmt(gs.ml)} M ${dash} d\n`
+    if (gs.ri) s += `${writeName(gs.ri)} ri\n`
+    if (gs.flat !== null) s += `${fmt(gs.flat)} i\n`
+    const M = this.contentTransform(U)
+    s += this.colorOps(gs.fill, false, M) + this.colorOps(gs.stroke, true, M)
+    return s
+  }
+
+  /** Wrap a block in the item's optional-content sections. */
+  wrapOc(rec: ItemRecord, block: string | Uint8Array): Uint8Array {
+    const w = new ByteWriter()
+    for (const name of rec.oc) w.text(`/OC ${writeName(name)} BDC\n`)
+    if (typeof block === 'string') w.text(block)
+    else w.bytes(block)
+    for (let i = 0; i < rec.oc.length; i++) w.text('EMC\n')
+    return w.toBytes()
+  }
+
+  fontResource(font: PDFFont): string {
+    const known = this.fontNames.get(font.ref)
+    if (known) return known
+    const fonts = getDict(this.t.res.resources(), 'Font')
+    if (fonts) {
+      for (const [key, val] of fonts.entries()) {
+        if (val === font.ref) {
+          this.fontNames.set(font.ref, key.decodeText())
+          return key.decodeText()
+        }
+      }
+    }
+    const name = this.t.res.freshName('Font', 'OPEF1')
+    this.t.res.set('Font', name, font.ref)
+    this.fontNames.set(font.ref, name)
+    return name
+  }
 }
 
 function textStateOps(ts: TextState, prev: TextState | null): string {
@@ -161,208 +301,6 @@ function textStateOps(ts: TextState, prev: TextState | null): string {
 function rgbOp(color: string, stroke: boolean): string {
   const [r, g, b] = parseHex(color)
   return `${fmt(r, 4)} ${fmt(g, 4)} ${fmt(b, 4)} ${stroke ? 'RG' : 'rg'}\n`
-}
-
-// ---------------------------------------------------------------------------------------
-// Inlining form XObjects
-
-const RESOURCE_CATEGORIES = ['Font', 'XObject', 'ExtGState', 'ColorSpace', 'Pattern', 'Shading', 'Properties']
-const DEVICE_SPACES = new Set(['DeviceGray', 'DeviceRGB', 'DeviceCMYK', 'Pattern', 'G', 'RGB', 'CMYK', 'I', 'Indexed'])
-
-type Renames = Map<string, Map<string, string>>
-
-function mergeResources(formRes: PDFDict, res: ResourceEditor): Renames {
-  const renames: Renames = new Map()
-  for (const cat of RESOURCE_CATEGORIES) {
-    const src = getDict(formRes, cat)
-    if (!src) continue
-    for (const [key, val] of src.entries()) {
-      const name = key.decodeText()
-      const existing = res.get(cat, name)
-      if (existing === undefined) {
-        res.set(cat, name, val)
-      } else if (existing !== val && resolve(src.context, existing) !== resolve(src.context, val)) {
-        const fresh = res.freshName(cat, name)
-        res.set(cat, fresh, val)
-        let m = renames.get(cat)
-        if (!m) renames.set(cat, (m = new Map()))
-        m.set(name, fresh)
-      }
-    }
-  }
-  return renames
-}
-
-function renameOp(op: Op, data: Uint8Array, renames: Renames): Uint8Array | undefined {
-  if (!renames.size) return undefined
-  const rn = (cat: string, o: Operand | undefined): Operand | undefined => {
-    if (!(o instanceof PdfName)) return undefined
-    const to = renames.get(cat)?.get(o.name)
-    return to ? new PdfName(to) : undefined
-  }
-  const args = op.args.slice()
-  let changed = false
-  const at = (idx: number, cat: string) => {
-    if (idx < 0 || idx >= args.length) return
-    const r = rn(cat, args[idx])
-    if (r) {
-      args[idx] = r
-      changed = true
-    }
-  }
-  switch (op.op) {
-    case 'Tf':
-      at(args.length - 2, 'Font')
-      break
-    case 'Do':
-      at(args.length - 1, 'XObject')
-      break
-    case 'gs':
-      at(args.length - 1, 'ExtGState')
-      break
-    case 'sh':
-      at(args.length - 1, 'Shading')
-      break
-    case 'cs':
-    case 'CS': {
-      const a = args[args.length - 1]
-      if (a instanceof PdfName && !DEVICE_SPACES.has(a.name)) at(args.length - 1, 'ColorSpace')
-      break
-    }
-    case 'sc':
-    case 'scn':
-    case 'SC':
-    case 'SCN':
-      at(args.length - 1, 'Pattern')
-      break
-    case 'BDC':
-    case 'DP':
-      at(1, 'Properties')
-      break
-    case 'BI': {
-      if (!op.image) return undefined
-      const dict = new Map(op.image.dict.map)
-      for (const key of ['CS', 'ColorSpace']) {
-        const v = dict.get(key)
-        if (v instanceof PdfName && !DEVICE_SPACES.has(v.name)) {
-          const r = rn('ColorSpace', v)
-          if (r) {
-            dict.set(key, r)
-            changed = true
-          }
-        } else if (Array.isArray(v) && v[1] instanceof PdfName && !DEVICE_SPACES.has(v[1].name)) {
-          const r = rn('ColorSpace', v[1])
-          if (r) {
-            const nv = v.slice()
-            nv[1] = r
-            dict.set(key, nv)
-            changed = true
-          }
-        }
-      }
-      if (!changed) return undefined
-      const w = new ByteWriter()
-      w.text('BI ')
-      for (const [k, v] of dict) w.text(`${writeName(k)} ${writeOperand(v)} `)
-      w.text('ID ')
-      w.bytes(data.subarray(op.image.dataStart, op.image.dataEnd))
-      w.text('\nEI')
-      return w.toBytes()
-    }
-    default:
-      return undefined
-  }
-  if (!changed) return undefined
-  const w = new ByteWriter()
-  w.text(writeOp(op.op, args))
-  return w.toBytes()
-}
-
-const PATH_CONSTRUCTION = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're'])
-const PATH_PAINT = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'n'])
-
-/** Content replacing a `Do` of a form XObject: its content wrapped in an OPEInline section. */
-function inlineRegion(xo: PDFStream, src: string, res: ResourceEditor): Uint8Array | undefined {
-  const data = streamData(xo)
-  if (!data) return undefined
-  const inner = parseContent(data)
-  const formRes = getDict(xo.dict, 'Resources')
-  const renames = formRes ? mergeResources(formRes, res) : new Map()
-  const m = getMatrix(xo.dict, 'Matrix') ?? IDENTITY
-  const bbox = numberArray(xo.dict.context, get(xo.dict, 'BBox') as never)
-  let header = ''
-  let n = 0
-  const oc = xo.dict.get(PDFName.of('OC'))
-  if (oc) {
-    const name = res.freshName('Properties', 'OPEoc')
-    res.set('Properties', name, oc)
-    header += `/OC ${writeName(name)} BDC\n`
-    n++
-  }
-  header += 'q\n'
-  header += `${writeMatrix(m)} cm\n`
-  n += 2
-  if (bbox && bbox.length === 4) {
-    const x0 = Math.min(bbox[0], bbox[2])
-    const y0 = Math.min(bbox[1], bbox[3])
-    header += `${fmt(x0)} ${fmt(y0)} ${fmt(Math.abs(bbox[2] - bbox[0]))} ${fmt(Math.abs(bbox[3] - bbox[1]))} re\nW\nn\n`
-    n += 3
-  }
-  const w = new ByteWriter()
-  w.text(`/${OPE_INLINE} <</Src ${writeTextString(src)} /N ${n}>> BDC\n`)
-  w.text(header)
-  let depth = 0
-  let mdepth = 0
-  let inText = false
-  let pathOpen = false
-  let prev = 0
-  for (const op of inner) {
-    if (op.start > prev) w.bytes(data.subarray(prev, op.start))
-    prev = op.end
-    const o = op.op
-    // Keep the operation count (ids) while neutralizing operators that would break nesting.
-    if ((o === 'Q' && depth === 0) || (o === 'EMC' && mdepth === 0)) {
-      w.text('/OPENop MP')
-      continue
-    }
-    if (o === 'q') depth++
-    else if (o === 'Q') depth--
-    else if (o === 'BMC' || o === 'BDC') mdepth++
-    else if (o === 'EMC') mdepth--
-    else if (o === 'BT') inText = true
-    else if (o === 'ET') inText = false
-    if (PATH_CONSTRUCTION.has(o)) pathOpen = true
-    else if (PATH_PAINT.has(o)) pathOpen = false
-    const renamed = renameOp(op, data, renames)
-    w.bytes(renamed ?? data.subarray(op.start, op.end))
-  }
-  w.text('\n')
-  if (pathOpen) w.text('n\n')
-  if (inText) w.text('ET\n')
-  for (let i = 0; i < mdepth; i++) w.text('EMC\n')
-  for (let i = 0; i < depth; i++) w.text('Q\n')
-  w.text('Q\n')
-  if (oc) w.text('EMC\n')
-  w.text('EMC')
-  return w.toBytes()
-}
-
-function inlineForms(interp: Interpretation, ids: Set<string>, res: ResourceEditor): Uint8Array {
-  const plan = new Map<number, Replacement>()
-  const xobjects = getDict(res.resources(), 'XObject')
-  for (const id of ids) {
-    const rec = interp.byId.get(id)
-    if (!rec || rec.region) continue
-    const k = rec.ops[0]
-    const op = interp.ops[k]
-    const nameOp = op.args[op.args.length - 1]
-    if (!(nameOp instanceof PdfName)) continue
-    const xo = get(xobjects, nameOp.name)
-    if (!(xo instanceof PDFStream)) continue
-    const region = inlineRegion(xo, id, res)
-    if (region) plan.set(k, region)
-  }
-  return emitAll(interp, plan).toBytes()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -447,43 +385,74 @@ export async function applyEdits(
   helpers: EditHelpers,
   skipMarked?: Set<string>
 ): Promise<void> {
-  const effective = edits.filter(hasEffect)
-  if (!effective.length) return
-  const ctx = doc.context
-  const res = new ResourceEditor(doc, page)
-  let data = readPageContent(page)
-  let interp = interpret(ctx, data, parseContent(data), res.resources(), { cropBox, skipMarked })
+  const map = new Map<string, ContentEdit>()
+  for (const e of edits) if (hasEffect(e) && !map.has(e.itemId)) map.set(e.itemId, e)
+  if (!map.size) return
+  const data = readPageContent(page)
+  if (!data.length) return
+  const session: Session = { ctx: doc.context, cropBox, skipMarked, helpers }
+  const res = ResourceEditor.forPage(doc, page)
+  const result = await editContent(session, { data, res, base: IDENTITY, baseInv: IDENTITY, depth: 0 }, map)
+  if (result) writePageContent(doc, page, result.data)
+}
 
-  // Inline the form XObjects that contain edited items (outermost first, up to 6 levels).
-  for (let round = 0; round < 6; round++) {
-    const toInline = new Set<string>()
-    for (const e of effective) {
-      const rec = interp.byId.get(e.itemId)
-      if (rec?.pageLevel) continue
-      const parts = e.itemId.split('/')
-      for (let k = parts.length - 1; k >= 1; k--) {
-        const prefix = parts.slice(0, k).join('/')
-        const r = interp.byId.get(prefix)
-        if (r && r.pageLevel && r.kind === 'xobject' && !r.region) {
-          toInline.add(prefix)
-          break
-        }
+/** Apply edits (ids local to this content) to one content stream; null if nothing changed. */
+async function editContent(
+  s: Session,
+  t: Target,
+  edits: Map<string, ContentEdit>
+): Promise<{ data: Uint8Array; blocks: boolean } | null> {
+  const interp = interpret(s.ctx, t.data, parseContent(t.data), t.res.resources(), {
+    cropBox: s.cropBox,
+    skipMarked: s.skipMarked,
+    startGs: t.startGs
+  })
+  const em = new Emitter(s, t, interp)
+
+  // Edits of items inside form XObjects drawn by this content → private copies.
+  const nested = new Map<string, Map<string, ContentEdit>>()
+  const direct: [ItemRecord, ContentEdit][] = []
+  for (const [id, e] of edits) {
+    const rec = interp.byId.get(id)
+    if (rec?.pageLevel) {
+      direct.push([rec, e])
+      continue
+    }
+    const parts = id.split('/')
+    for (let k = parts.length - 1; k >= 1; k--) {
+      const prefix = parts.slice(0, k).join('/')
+      const r = interp.byId.get(prefix)
+      if (r && r.pageLevel && r.kind === 'xobject') {
+        let m = nested.get(prefix)
+        if (!m) nested.set(prefix, (m = new Map()))
+        m.set(id.slice(prefix.length + 1), e)
+        break
       }
     }
-    if (!toInline.size) break
-    data = inlineForms(interp, toInline, res)
-    interp = interpret(ctx, data, parseContent(data), res.resources(), { cropBox, skipMarked })
+  }
+  if (t.depth < MAX_FORM_DEPTH) {
+    const xobjects = getDict(t.res.resources(), 'XObject')
+    for (const [xid, inner] of nested) {
+      const rec = interp.byId.get(xid)!
+      const k = rec.ops[0]
+      const op = interp.ops[k]
+      const nameOp = op.args[op.args.length - 1]
+      if (!(nameOp instanceof PdfName)) continue
+      const xo = get(xobjects, nameOp.name)
+      if (!(xo instanceof PDFStream)) continue
+      const copy = await editFormCopy(s, xo, rec.gs, inner, t.res.resources(), t.depth + 1)
+      if (!copy) continue
+      const fresh = t.res.freshName('XObject', `${nameOp.name}_e`)
+      t.res.set('XObject', fresh, copy)
+      em.overrides.set(k, writeOp('Do', [...op.args.slice(0, -1), new PdfName(fresh)]))
+    }
   }
 
-  // Classify.
+  // Classify direct edits.
   const actions: Action[] = []
-  const seen = new Set<string>()
-  for (const edit of effective) {
-    if (seen.has(edit.itemId)) continue
-    const rec = interp.byId.get(edit.itemId)
-    if (!rec || !rec.pageLevel) continue
-    seen.add(edit.itemId)
-    const U = isIdentity(edit.transform) ? IDENTITY : pageTransformToUser(edit.transform!, cropBox)
+  for (const [rec, edit] of direct) {
+    if (rec.item.readOnly) continue
+    const U = isIdentity(edit.transform) ? IDENTITY : pageTransformToUser(edit.transform!, s.cropBox)
     const moved = !isIdentity(edit.transform)
     if (edit.deleted || (rec.kind === 'text' && edit.text !== undefined && !edit.text.replace(/\s+/g, ''))) {
       actions.push({ rec, edit, U, mode: 'delete' })
@@ -496,11 +465,11 @@ export async function applyEdits(
       actions.push({ rec, edit, U, mode: 'redraw' })
     }
   }
-  if (!actions.length) return
+  if (!actions.length && !em.overrides.size) return null
 
   // Removal plan.
   const plan = new Map<number, Replacement>()
-  const removed = new Set<number>()
+  for (const [k, text] of em.overrides) plan.set(k, text)
   const textRemovals = new Map<number, [number, number][]>()
   for (const a of actions) {
     if (a.mode === 'color') continue
@@ -514,8 +483,6 @@ export async function applyEdits(
     } else if (rec.kind === 'path' && rec.path) {
       if (rec.path.clipOp >= 0) plan.set(rec.path.paintOp, 'n')
       else for (const k of rec.ops) plan.set(k, null)
-    } else if (rec.region) {
-      for (const k of rec.ops) removed.add(k)
     } else {
       for (const k of rec.ops) plan.set(k, null)
     }
@@ -534,54 +501,34 @@ export async function applyEdits(
     const constr = a.rec.ops.filter((k) => k !== paintOp && k !== clipOp)
     if (!constr.length) continue
     const override = rgbOp(a.edit.color, !fills)
-    plan.set(constr[0], `q\n${override}${opText(interp, constr[0])}`)
+    plan.set(constr[0], `q\n${override}${em.opText(constr[0])}`)
     if (clipOp >= 0) plan.set(clipOp, null)
-    let tail = `${opText(interp, paintOp)}\nQ`
-    if (clipOp >= 0) tail += '\n' + constr.map((k) => opText(interp, k)).join('\n') + `\n${interp.ops[clipOp].op} n`
+    let tail = `${em.opText(paintOp)}\nQ`
+    if (clipOp >= 0) tail += '\n' + constr.map((k) => em.opText(k)).join('\n') + `\n${interp.ops[clipOp].op} n`
     plan.set(paintOp, tail)
   }
 
   // Redrawn blocks.
-  const blocks: (string | Uint8Array)[] = []
-  const fontNames = new Map<PDFRef, string>()
-  const fontResource = (font: PDFFont): string => {
-    const known = fontNames.get(font.ref)
-    if (known) return known
-    const fonts = getDict(res.resources(), 'Font')
-    if (fonts) {
-      for (const [key, val] of fonts.entries()) {
-        if (val === font.ref) {
-          fontNames.set(font.ref, key.decodeText())
-          return key.decodeText()
-        }
-      }
-    }
-    const name = res.freshName('Font', 'OPEF1')
-    res.set('Font', name, font.ref)
-    fontNames.set(font.ref, name)
-    return name
-  }
-
+  const blocks: Uint8Array[] = []
   for (const a of actions) {
     if (a.mode !== 'redraw') continue
     const rec = a.rec
     if (rec.kind === 'text') {
-      blocks.push(await textBlock(interp, rec, a.edit, a.U, helpers, fontResource))
+      blocks.push(em.wrapOc(rec, await textBlock(em, rec, a.edit, a.U)))
     } else if (rec.kind === 'path' && rec.path) {
       const { paintOp, clipOp, fills } = rec.path
-      let s = blockHead(rec.gs, a.U)
-      if (a.edit.color) s += rgbOp(a.edit.color, !fills)
-      for (const k of rec.ops) if (k !== paintOp && k !== clipOp) s += opText(interp, k) + '\n'
-      s += `${interp.ops[paintOp].op}\nQ\n`
-      blocks.push(s)
+      let b = em.head(rec.gs, a.U)
+      if (a.edit.color) b += rgbOp(a.edit.color, !fills)
+      for (const k of rec.ops) if (k !== paintOp && k !== clipOp) b += em.opText(k) + '\n'
+      b += `${interp.ops[paintOp].op}\nQ\n`
+      blocks.push(em.wrapOc(rec, b))
     } else {
       const w = new ByteWriter()
-      w.text(blockHead(rec.gs, a.U))
+      w.text(em.head(rec.gs, a.U))
       if (rec.kind === 'xobject') w.text(textStateOps(rec.gs.text, null))
-      if (rec.region) emitOps(w, interp, rec.region.start, rec.region.end, plan)
-      else for (const k of rec.ops) w.bytes(opBytes(interp, k))
+      for (const k of rec.ops) w.bytes(em.opBytes(k))
       w.text('\nQ\n')
-      blocks.push(w.toBytes())
+      blocks.push(em.wrapOc(rec, w.toBytes()))
     }
   }
 
@@ -590,7 +537,12 @@ export async function applyEdits(
   if (blocks.length) {
     for (const k of interp.unmatchedQ) if (!plan.has(k)) plan.set(k, null)
     out.text('q\n')
-    out.bytes(emitAll(interp, plan, removed).toBytes())
+    if (t.bbox && t.bbox.length === 4) {
+      // The copy's /BBox is enlarged for the blocks; the original content keeps its clip.
+      const [a, b, c, d] = t.bbox
+      out.text(`${fmt(Math.min(a, c))} ${fmt(Math.min(b, d))} ${fmt(Math.abs(c - a))} ${fmt(Math.abs(d - b))} re W n\n`)
+    }
+    out.bytes(emitAll(interp, plan).toBytes())
     const f = interp.final
     let closers = '\n'
     if (f.pathOpen) closers += 'n\n'
@@ -598,24 +550,70 @@ export async function applyEdits(
     for (let i = 0; i < f.marked; i++) closers += 'EMC\n'
     for (let i = 0; i < f.qDepth; i++) closers += 'Q\n'
     out.text(closers + 'Q\n')
-    for (const b of blocks) {
-      if (typeof b === 'string') out.text(b)
-      else out.bytes(b)
-    }
+    for (const b of blocks) out.bytes(b)
   } else {
-    out.bytes(emitAll(interp, plan, removed).toBytes())
+    out.bytes(emitAll(interp, plan).toBytes())
   }
-  writePageContent(doc, page, out.toBytes())
+  return { data: out.toBytes(), blocks: blocks.length > 0 }
 }
 
-async function textBlock(
-  interp: Interpretation,
-  rec: ItemRecord,
-  edit: ContentEdit,
-  U0: Matrix,
-  helpers: EditHelpers,
-  fontResource: (font: PDFFont) => string
-): Promise<string> {
+const STREAM_KEYS = new Set(['Filter', 'DecodeParms', 'Length', 'DL', 'F', 'FFilter', 'FDecodeParms'])
+
+/**
+ * A private copy of form XObject `xo` (drawn with state `gsAtDo`) with `edits` applied to its
+ * content; null if nothing changed.
+ */
+async function editFormCopy(
+  s: Session,
+  xo: PDFStream,
+  gsAtDo: GState,
+  edits: Map<string, ContentEdit>,
+  parentRes: PDFDict | undefined,
+  depth: number
+): Promise<PDFRef | null> {
+  const data = streamData(xo)
+  if (!data) return null
+  const own = getDict(xo.dict, 'Resources')
+  let installed: PDFDict | undefined
+  const res = new ResourceEditor(
+    s.ctx,
+    () => own ?? parentRes,
+    (d) => (installed = d)
+  )
+  const start = formStartState(gsAtDo, xo)
+  const base = start.ctm
+  const baseInv = invert(base)
+  if (!baseInv) return null
+  const bbox = numberArray(s.ctx, get(xo.dict, 'BBox') as PDFArray | undefined)
+  const result = await editContent(s, { data, res, startGs: start, base, baseInv, bbox, depth }, edits)
+  if (!result) return null
+  const stream = s.ctx.flateStream(result.data)
+  for (const [key, value] of xo.dict.entries()) {
+    if (!STREAM_KEYS.has(key.decodeText())) stream.dict.set(key, value)
+  }
+  if (installed) stream.dict.set(PDFName.of('Resources'), installed)
+  if (result.blocks && bbox && bbox.length === 4) {
+    // Room for redrawn items anywhere on the page (the original content is clipped to the
+    // original box by editContent).
+    const c = s.cropBox
+    const pageInForm = transformRect(baseInv, { x0: c.x, y0: c.y, x1: c.x + c.width, y1: c.y + c.height })
+    const orig: Rect = rectOfPoints([
+      { x: bbox[0], y: bbox[1] },
+      { x: bbox[2], y: bbox[3] }
+    ])!
+    const u = {
+      x0: Math.min(orig.x0, pageInForm.x0),
+      y0: Math.min(orig.y0, pageInForm.y0),
+      x1: Math.max(orig.x1, pageInForm.x1),
+      y1: Math.max(orig.y1, pageInForm.y1)
+    }
+    stream.dict.set(PDFName.of('BBox'), s.ctx.obj([u.x0, u.y0, u.x1, u.y1]))
+  }
+  return s.ctx.register(stream)
+}
+
+async function textBlock(em: Emitter, rec: ItemRecord, edit: ContentEdit, U0: Matrix): Promise<string> {
+  const interp = em.interp
   const pieces = rec.pieces ?? []
   const t = rec.text!
   const first = pieces[0]
@@ -628,7 +626,7 @@ async function textBlock(
     const S = mul(mul(translate(-o.x, -o.y), [k, 0, 0, k, 0, 0]), translate(o.x, o.y))
     U = mul(S, U)
   }
-  let s = blockHead(first.gs, U)
+  let s = em.head(first.gs, U)
   const tr = ts0.tr
   const fillMode = tr === 0 || tr === 2 || tr === 4 || tr === 6
   const strokeMode = tr === 1 || tr === 2 || tr === 5 || tr === 6
@@ -670,8 +668,8 @@ async function textBlock(
         bold: !!rec.item.bold,
         italic: !!rec.item.italic
       })
-      const pdfFont = await helpers.embedFont(prepared.font)
-      fontName = fontResource(pdfFont)
+      const pdfFont = await em.s.helpers.embedFont(prepared.font)
+      fontName = em.fontResource(pdfFont)
       encoded = prepared.text.split('\n').map((l) => pdfFont.encodeText(l).toString())
       const m = fontMetrics(prepared.font)
       lineFactor = Math.max(1.15, m.ascent + m.descent)

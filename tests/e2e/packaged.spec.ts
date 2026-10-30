@@ -27,4 +27,16 @@ test.describe('packaged app', () => {
     await expect(page.locator('[data-testid="page-count"]')).toHaveText('3', { timeout: 30_000 })
     await expect.poll(() => windowTitle(app, page)).toContain('text-3pages')
   })
+
+  test('recognizes text with the bundled OCR engine and language data', async ({ launch }) => {
+    test.setTimeout(120_000)
+    const pdf = await copyFixture('scanned.pdf')
+    const { page } = await launch({ executablePath, args: [pdf] })
+    await expect(page.locator('[data-testid="page-count"]')).toHaveText('1', { timeout: 30_000 })
+    await page.locator('[data-testid="btn-ocr"]').click()
+    const dialog = page.locator('[data-testid="dialog"][data-dialog="ocr"]')
+    await dialog.locator('[data-testid="dialog-confirm"]').click()
+    await expect(dialog).toBeHidden({ timeout: 90_000 })
+    await expect(page.locator('[data-testid="notice"]')).toContainText('Recognized text on 1 page')
+  })
 })

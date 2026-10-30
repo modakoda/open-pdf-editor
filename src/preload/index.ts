@@ -8,7 +8,7 @@
  * - menu actions are queued only until the first subscriber appears.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type DesktopApi, type DocumentState, type MenuAction, type OpenedFile } from '../shared/ipc'
+import { IPC, type DesktopApi, type DocumentState, type MenuAction, type OpenedFile, type UpdateState } from '../shared/ipc'
 import { INTERNAL_IPC } from '../main/internal-ipc'
 
 type Listener<T> = (value: T) => void
@@ -65,6 +65,7 @@ function bufferedChannel<T>(channel: string, bufferAfterFirstSubscriber: boolean
 const subscribeOpenFile = bufferedChannel<OpenedFile>(IPC.openFile, true)
 const subscribeMenuAction = bufferedChannel<MenuAction>(IPC.menuAction, false)
 const subscribeSaveBeforeClose = bufferedChannel<void>(IPC.saveBeforeClose, false)
+const subscribeUpdateState = bufferedChannel<UpdateState>(IPC.updateState, false)
 
 const api: DesktopApi = {
   platform: process.platform,
@@ -102,7 +103,12 @@ const api: DesktopApi = {
   showItemInFolder: (path) => ipcRenderer.send(IPC.showItemInFolder, path),
   onMenuAction: (callback) => subscribeMenuAction(callback),
   onOpenFile: (callback) => subscribeOpenFile(callback),
-  onSaveBeforeClose: (callback) => subscribeSaveBeforeClose(() => callback())
+  onSaveBeforeClose: (callback) => subscribeSaveBeforeClose(() => callback()),
+  getUpdateState: () => ipcRenderer.invoke(IPC.getUpdateState),
+  checkForUpdates: () => ipcRenderer.send(IPC.checkForUpdates),
+  installUpdate: () => ipcRenderer.send(IPC.installUpdate),
+  openUpdateDownload: () => ipcRenderer.send(IPC.openUpdateDownload),
+  onUpdateState: (callback) => subscribeUpdateState(callback)
 }
 
 contextBridge.exposeInMainWorld('desktop', api)

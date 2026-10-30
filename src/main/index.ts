@@ -12,6 +12,7 @@ import { iconPath, PRODUCT_NAME, rendererRoot } from './paths'
 import { handleAppScheme, registerAppScheme } from './protocol'
 import { recentFiles } from './recent'
 import { hardenSessions, hardenWebContents } from './security'
+import { initUpdates } from './updates'
 import { windows } from './windows'
 
 // Isolated profile (used by the e2e tests; also handy for running a second, clean profile).
@@ -75,6 +76,7 @@ function start(): void {
     registerIpcHandlers()
     windows.onChange(refreshMenu)
     recentFiles.onChange(refreshMenu)
+    initUpdates({ onChange: refreshMenu, projectUrl: PROJECT_URL })
     installMenu()
 
     ready = true

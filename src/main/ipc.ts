@@ -35,7 +35,7 @@ const IMAGE_FILTERS: Electron.FileFilter[] = [{ name: 'Images (PNG, JPEG)', exte
 const MAX_FILES_PER_FOLDER_SAVE = 2000
 
 /** The window behind an IPC message, or an error for anything that is not our app's main frame. */
-function senderContext(event: IpcMainEvent | IpcMainInvokeEvent): WindowContext {
+export function senderContext(event: IpcMainEvent | IpcMainInvokeEvent): WindowContext {
   const ctx = windows.fromWebContents(event.sender)
   const frame = event.senderFrame
   if (!ctx || !frame || frame !== event.sender.mainFrame || !isAppUrl(frame.url)) {

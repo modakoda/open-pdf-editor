@@ -61,6 +61,7 @@ class WindowManager {
   /** Window ids, least recently focused first. */
   private focusOrder: number[] = []
   private listeners = new Set<ChangeListener>()
+  private quitCancelListeners = new Set<ChangeListener>()
   private quitSequence = false
   private quitConfirmed = false
 
@@ -71,6 +72,18 @@ class WindowManager {
 
   private emitChange(): void {
     for (const l of this.listeners) l()
+  }
+
+  /** Called when quitting stops because the user kept a window with unsaved changes open. */
+  onQuitCancelled(listener: ChangeListener): () => void {
+    this.quitCancelListeners.add(listener)
+    return () => this.quitCancelListeners.delete(listener)
+  }
+
+  private cancelQuitSequence(): void {
+    if (!this.quitSequence) return
+    this.quitSequence = false
+    for (const l of this.quitCancelListeners) l()
   }
 
   all(): WindowContext[] {
@@ -223,7 +236,7 @@ class WindowManager {
       const intent = ctx.closeIntent
       ctx.closeIntent = null
       // A close the user started themselves (not part of quitting) cancels a pending quit.
-      if (intent !== 'quit') this.quitSequence = false
+      if (intent !== 'quit') this.cancelQuitSequence()
       if (ctx.allowClose || !ctx.state.dirty) {
         clearTimeout(saveTimer)
         rememberBounds()
@@ -293,7 +306,7 @@ class WindowManager {
 
   /** The renderer's document is gone (reload, crash): forget its state and pending close. */
   private resetDocument(ctx: WindowContext): void {
-    if (ctx.awaitingSave) this.quitSequence = false
+    if (ctx.awaitingSave) this.cancelQuitSequence()
     ctx.awaitingSave = false
     ctx.state = { ...EMPTY_STATE }
     ctx.pendingOpenUntil = 0
@@ -340,7 +353,7 @@ class WindowManager {
       if (forQuit) ctx.closeIntent = 'quit'
       ctx.win.close()
     } else {
-      this.quitSequence = false
+      this.cancelQuitSequence()
     }
   }
 
@@ -358,7 +371,7 @@ class WindowManager {
   cancelClose(ctx: WindowContext): void {
     if (!ctx.awaitingSave) return
     ctx.awaitingSave = false
-    this.quitSequence = false
+    this.cancelQuitSequence()
   }
 
   /** app 'before-quit': ask about every window with unsaved changes, one at a time. */

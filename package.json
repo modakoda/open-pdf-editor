@@ -12,6 +12,7 @@
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
     "@cantoo/pdf-lib": "^2.11.1",
+    "electron-updater": "^6.8.11",
     "lucide-react": "^1.62.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",

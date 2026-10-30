@@ -26,6 +26,18 @@ asarUnpack:
   - out/main/chunks/*.png
 npmRebuild: false
 
+# In-app updates (electron-updater, src/main/updates). electron-builder writes the update
+# metadata (latest*.yml, *.blockmap) next to the installers, and this feed into the app as
+# resources/app-update.yml. The GitHub provider reads public releases only: while the repository
+# is private, end users need public releases (e.g. another, public repository) or a generic feed:
+# scripts/generic-feed-config.mjs writes a copy of this file for one (release.yml uses it when the
+# UPDATE_FEED_URL repository variable is set); upload the release files there.
+publish:
+  provider: github
+  owner: modakoda
+  repo: open-pdf-editor
+  releaseType: release
+
 fileAssociations:
   - ext: pdf
     name: PDF Document

@@ -1,0 +1,104 @@
+.update-banner-host {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--statusbar-h) + 12px);
+  z-index: 890;
+  pointer-events: none;
+  width: min(340px, calc(100vw - 32px));
+}
+.update-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: auto;
+  animation: ope-update-in 0.16s ease-out;
+}
+@keyframes ope-update-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.update-banner-icon {
+  flex: none;
+  display: inline-flex;
+  padding-top: 1px;
+  color: var(--accent);
+}
+.update-banner-icon .update-ok {
+  color: var(--success);
+}
+.update-banner-icon .update-error {
+  color: var(--danger);
+}
+.update-spin {
+  animation: ope-update-spin 1s linear infinite;
+}
+@keyframes ope-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-banner,
+  .update-spin {
+    animation: none;
+  }
+}
+.update-banner-body {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.update-actions {
+  margin-top: 8px;
+}
+.update-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.update-link:hover {
+  color: var(--accent-hover);
+}
+.update-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.update-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+.update-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex: none;
+}
+.update-banner-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}

@@ -10,3 +10,4 @@ playwright-report/
 src/renderer/public/pdfjs/
 tests/fixtures/generated/
 tests/e2e/.tmp/
+electron-builder.feed.yml

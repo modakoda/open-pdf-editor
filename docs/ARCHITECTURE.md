@@ -80,6 +80,17 @@ The viewer renders each page as:
 | Status bar | `page-count` (text: number of pages), `current-page` (1-based) |
 | Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
 | Notices | `notice` with `data-kind="info|error"` |
+| Update banner | `update-banner` with `data-status="checking|up-to-date|available|downloading|ready|error"`; `update-progress`, `update-restart`, `update-download`, `update-dismiss` |
+
+## In-app updates
+
+`src/main/updates`: `controller.ts` is the state machine (check → download → ready, or "available"
+with a download link for builds that cannot update themselves), `installMode.ts` decides which
+builds update in place (NSIS, AppImage, Developer ID signed macOS app), `index.ts` wires it to
+electron-updater (loaded lazily, bundled into the main process), IPC (`UpdateState` in
+`src/shared/ipc.ts`) and the Help menu. "Restart to Update" quits through the window manager's
+quit sequence, so unsaved documents are saved first; it installs only on `will-quit`. The renderer
+shows `components/update/UpdateBanner.tsx`. Main-process unit tests live in `tests/main`.
 
 ## Commands
 

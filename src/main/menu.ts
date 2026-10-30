@@ -10,6 +10,7 @@ import { IPC, type MenuAction } from '@shared/ipc'
 import { openPath } from './open'
 import { isDev, PRODUCT_NAME } from './paths'
 import { recentFiles } from './recent'
+import { checkForUpdatesFromMenu, updater } from './updates'
 import { windows } from './windows'
 
 export const PROJECT_URL = 'https://github.com/modakoda/open-pdf-editor'
@@ -278,11 +279,31 @@ export function buildMenuTemplate(): MenuItemConstructorOptions[] {
     role: 'help',
     submenu: [
       { id: 'menu:website', label: `${PRODUCT_NAME} Website`, click: () => void shell.openExternal(PROJECT_URL) },
+      sep,
+      ...updateMenuItems(),
       ...(mac ? [] : [sep, item('about', `About ${PRODUCT_NAME}`)])
     ]
   }
 
   return [...(mac ? [appMenu] : []), fileMenu, editMenu, viewMenu, pageMenu, documentMenu, windowMenu, helpMenu]
+}
+
+/** Help menu: check for updates, the automatic-check setting, and restart when one is ready. */
+function updateMenuItems(): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = [
+    { id: 'menu:check-for-updates', label: 'Check for Updates…', click: () => checkForUpdatesFromMenu() },
+    {
+      id: 'menu:auto-check-updates',
+      label: 'Check for Updates Automatically',
+      type: 'checkbox',
+      checked: updater.autoCheck,
+      click: (menuItem) => updater.setAutoCheck(menuItem.checked)
+    }
+  ]
+  if (updater.getState().status === 'ready') {
+    items.push({ id: 'menu:install-update', label: 'Restart to Update', click: () => updater.install() })
+  }
+  return items
 }
 
 let scheduled = false

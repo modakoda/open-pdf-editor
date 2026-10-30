@@ -3,7 +3,7 @@
  *   toolbar (+ page/document bar)
  *   [thumbnails sidebar] [viewer + find bar] [properties panel]
  *   status bar
- * plus the welcome screen (no document), dialogs, notices and the file drop overlay.
+ * plus the welcome screen (no document), dialogs, notices, the update banner and the file drop overlay.
  */
 import { useEffect } from 'react'
 import { closeFind } from './actions/find'
@@ -13,6 +13,7 @@ import { Notice } from './components/notice/Notice'
 import { Sidebar } from './components/sidebar/Sidebar'
 import { StatusBar } from './components/statusbar/StatusBar'
 import { Toolbar } from './components/toolbar/Toolbar'
+import { UpdateBanner } from './components/update/UpdateBanner'
 import { Viewer } from './components/viewer/Viewer'
 import { Welcome } from './components/welcome/Welcome'
 import { DialogHost } from './dialogs/DialogHost'
@@ -55,6 +56,7 @@ export function App() {
       </main>
       <StatusBar />
       <Notice />
+      <UpdateBanner />
       <DialogHost />
       <FileDropOverlay />
     </div>

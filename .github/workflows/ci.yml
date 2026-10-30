@@ -112,10 +112,14 @@ jobs:
       - name: Package installers
         run: npx electron-builder --publish never ${{ matrix.builder-args }}
 
+      - name: Check update metadata
+        run: node scripts/check-update-metadata.mjs
+
       - name: Smoke-test the packaged app
         env:
           OPE_PACKAGED_APP: ${{ matrix.packaged }}
-        run: ${{ matrix.run }} npx playwright test tests/e2e/packaged.spec.ts
+        # packaged.spec.ts and packaged-updates.spec.ts
+        run: ${{ matrix.run }} npx playwright test packaged
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
@@ -128,6 +132,8 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.tar.gz
+            release/latest*.yml
+            release/*.blockmap
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

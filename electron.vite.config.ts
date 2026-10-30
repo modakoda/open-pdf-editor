@@ -11,7 +11,11 @@ const alias = {
 export default defineConfig({
   main: {
     resolve: { alias },
-    build: { outDir: 'out/main' }
+    build: {
+      outDir: 'out/main',
+      // Packaged apps ship no node_modules: bundle electron-updater into the main process.
+      externalizeDeps: { exclude: ['electron-updater'] }
+    }
   },
   preload: {
     resolve: { alias },

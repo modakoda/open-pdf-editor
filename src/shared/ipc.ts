@@ -68,6 +68,29 @@ export type MenuAction =
   | 'find'
   | 'about'
 
+/** What the in-app updater is doing (src/main/updates). */
+export type UpdateStatus =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'up-to-date'; currentVersion: string }
+  /** This build cannot update itself (unsigned macOS app, portable, deb, tar.gz): link to the download. */
+  | { status: 'available'; version: string; downloadUrl: string }
+  | { status: 'downloading'; version: string; percent: number }
+  /** Installs when the app quits, or now with installUpdate() ("Restart to Update"). */
+  | { status: 'ready'; version: string }
+  | { status: 'error'; message: string }
+
+/** Update state as shown by the update banner. */
+export type UpdateState = UpdateStatus & {
+  /**
+   * Changes whenever the banner should show again (a new status, or a check the user asked
+   * for); progress updates keep it, so a dismissed download banner stays dismissed.
+   */
+  id: number
+  /** The user asked for this check (Help > Check for Updates…), or should see its outcome. */
+  manual: boolean
+}
+
 export interface DesktopApi {
   platform: 'darwin' | 'win32' | 'linux' | string
   /** Show an Open dialog for PDFs. Resolves to [] if cancelled. */
@@ -113,6 +136,17 @@ export interface DesktopApi {
    * confirmClose() on success, or cancelClose() on failure/cancel to keep the window open.
    */
   onSaveBeforeClose(callback: () => void): () => void
+  // In-app updates (optional: the browser build and older shells lack them).
+  /** Current update state. */
+  getUpdateState?(): Promise<UpdateState>
+  /** Check for updates now (like Help > Check for Updates…). */
+  checkForUpdates?(): void
+  /** "Restart to Update": quit (asking to save unsaved changes), install and relaunch. */
+  installUpdate?(): void
+  /** Open the download page of the available version (builds that cannot update themselves). */
+  openUpdateDownload?(): void
+  /** Subscribe to update state changes. Returns an unsubscribe function. */
+  onUpdateState?(callback: (state: UpdateState) => void): () => void
 }
 
 /** IPC channel names (invoke = request/response, send = fire-and-forget, event = main → renderer). */
@@ -132,5 +166,10 @@ export const IPC = {
   showItemInFolder: 'shell:show-item-in-folder',
   menuAction: 'event:menu-action',
   openFile: 'event:open-file',
-  saveBeforeClose: 'event:save-before-close'
+  saveBeforeClose: 'event:save-before-close',
+  getUpdateState: 'update:get-state',
+  checkForUpdates: 'update:check',
+  installUpdate: 'update:install',
+  openUpdateDownload: 'update:open-download',
+  updateState: 'event:update-state'
 } as const

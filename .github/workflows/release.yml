@@ -9,6 +9,11 @@ name: Release
 #   Windows: WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD (Authenticode .pfx); falls back to CSC_LINK /
 #            CSC_KEY_PASSWORD only if WIN_CSC_LINK is not set and the certificate is a .pfx.
 # Without them, macOS builds are ad-hoc signed and Windows builds are unsigned.
+#
+# In-app updates: the release also gets the update metadata (latest*.yml) and blockmaps. Apps read
+# them from this repository's GitHub Releases, which only works for public releases. Set the
+# repository variable UPDATE_FEED_URL to build apps that read a generic feed instead (upload the
+# release files there). Unsigned macOS builds cannot update themselves; they link to the release.
 
 on:
   push:
@@ -77,6 +82,7 @@ jobs:
 
       - name: Package installers
         env:
+          UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
           SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
           SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           SECRET_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -86,6 +92,10 @@ jobs:
           SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           args=(--publish never)
+          if [ -n "$UPDATE_FEED_URL" ]; then
+            node scripts/generic-feed-config.mjs "$UPDATE_FEED_URL" electron-builder.feed.yml
+            args+=(--config electron-builder.feed.yml)
+          fi
           case "$RUNNER_OS" in
             macOS)
               if [ -n "$SECRET_CSC_LINK" ]; then
@@ -117,6 +127,9 @@ jobs:
           esac
           npx electron-builder "${args[@]}"
 
+      - name: Check update metadata
+        run: node scripts/check-update-metadata.mjs
+
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
@@ -128,6 +141,8 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.tar.gz
+            release/latest*.yml
+            release/*.blockmap
           if-no-files-found: error
           compression-level: 0
 

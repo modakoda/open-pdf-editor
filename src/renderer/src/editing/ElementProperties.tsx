@@ -1,5 +1,5 @@
 /** Properties panel sections for existing elements (content, annotations, form fields) and FieldObjects. */
-import { RotateCcw, Trash } from 'lucide-react'
+import { ArrowDown, ArrowUp, BringToFront, RotateCcw, SendToBack, Trash, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import {
   editAnnotation,
@@ -13,11 +13,23 @@ import {
   type FieldObject
 } from '@core'
 import { useEditor, type ElementRef } from '@renderer/state/store'
-import { boxChange, CONTENT_KIND_LABELS, deleteField, editContent, elementBounds, hasEdit, resetElement, type ElementGeom } from './elements'
+import { getLoadedContentItems } from './contentItems'
+import {
+  boxChange,
+  canReorderContent,
+  CONTENT_KIND_LABELS,
+  deleteField,
+  editContent,
+  elementBounds,
+  hasEdit,
+  resetElement,
+  type ElementGeom,
+  type ZOrderCommand
+} from './elements'
 import { currentWidgets, FIELD_TYPE_LABELS, fieldObjects, validateFieldName, widgetOnValue } from './fields'
 import { ensureElementPreview } from './previews'
 import { CheckRow, ColorInput, CommitInput, NumberInput, OptionsEditor, Row } from './propControls'
-import { changeElement, deleteSelection } from './selection'
+import { changeElement, deleteSelection, reorderSelection } from './selection'
 
 function BoxGrid({ box, onChange, testPrefix = 'prop' }: { box: Box; onChange(b: Box): void; testPrefix?: string }) {
   return (
@@ -67,6 +79,40 @@ function ElementActions({ refEl, canReset, deleteLabel = 'Delete (Del)' }: { ref
         <Trash size={16} aria-hidden="true" />
       </button>
     </div>
+  )
+}
+
+const Z_ORDER: { cmd: ZOrderCommand; label: string; keys: string; Icon: LucideIcon }[] = [
+  { cmd: 'front', label: 'Bring to front', keys: 'Ctrl/Cmd+Shift+]', Icon: BringToFront },
+  { cmd: 'forward', label: 'Bring forward', keys: 'Ctrl/Cmd+]', Icon: ArrowUp },
+  { cmd: 'backward', label: 'Send backward', keys: 'Ctrl/Cmd+[', Icon: ArrowDown },
+  { cmd: 'back', label: 'Send to back', keys: 'Ctrl/Cmd+Shift+[', Icon: SendToBack }
+]
+
+/** Stacking order of an existing content item among the page's (or its form XObject's) items. */
+function ContentArrange({ refEl }: { refEl: ElementRef & { kind: 'content' } }) {
+  const doc = useEditor((s) => s.doc)
+  const page = doc?.pages.find((p) => p.id === refEl.pageId)
+  const items = doc && page ? getLoadedContentItems(doc, page) : undefined
+  return (
+    <Row label="Arrange">
+      <div className="ed-prop-buttons" role="group" aria-label="Arrange">
+        {Z_ORDER.map(({ cmd, label, keys, Icon }) => (
+          <button
+            key={cmd}
+            type="button"
+            className="ed-action"
+            data-testid={`prop-${cmd}`}
+            title={`${label} (${keys})`}
+            aria-label={label}
+            disabled={!doc || !items || !canReorderContent(doc, refEl.pageId, items, refEl.itemId, cmd)}
+            onClick={() => reorderSelection(cmd)}
+          >
+            <Icon size={16} aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+    </Row>
   )
 }
 
@@ -123,6 +169,7 @@ export function ContentProperties({ refEl, geom }: { refEl: ElementRef & { kind:
         </Row>
       )}
       <BoxGrid box={bounds} onChange={(b) => changeElement(refEl, (g) => boxChange(g, b), `${key}:box`)} />
+      <ContentArrange refEl={refEl} />
       <ElementActions refEl={refEl} canReset={!!edit} />
     </Panel>
   )

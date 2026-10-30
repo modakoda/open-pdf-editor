@@ -3,7 +3,16 @@ import { updateObject, type EditorDocument, type Point } from '@core'
 import { useEditor, type ElementRef } from '@renderer/state/store'
 import { getLoadedContentItems } from './contentItems'
 import { useEditing } from './editingState'
-import { applyElementChange, deleteElement, moveChange, resolveElement, type ElementChange, type ElementGeom } from './elements'
+import {
+  applyElementChange,
+  deleteElement,
+  moveChange,
+  reorderContent,
+  resolveElement,
+  type ElementChange,
+  type ElementGeom,
+  type ZOrderCommand
+} from './elements'
 import { translatePatch } from './manip'
 import { deleteSelected, findObject } from './objects'
 import { ensureElementPreview } from './previews'
@@ -39,6 +48,19 @@ export function changeElement(ref: ElementRef, make: (g: ElementGeom) => Element
   ensureElementPreview(ref)
   s.apply((d) => applyElementChange(d, ref, g, change), coalesceKey ? { coalesceKey } : undefined)
   return true
+}
+
+/** Re-order the selected existing content item as one undo step; false if nothing changed. */
+export function reorderSelection(cmd: ZOrderCommand): boolean {
+  const s = useEditor.getState()
+  const ref = s.selectedElement
+  if (!s.doc || ref?.kind !== 'content') return false
+  const page = s.doc.pages.find((p) => p.id === ref.pageId)
+  const items = page ? getLoadedContentItems(s.doc, page) : undefined
+  if (!items) return false
+  const before = s.doc
+  s.apply((d) => reorderContent(d, ref.pageId, items, ref.itemId, cmd))
+  return useEditor.getState().doc !== before
 }
 
 /** Move the selection by a page-space delta (keyboard nudging, coalesced). */

@@ -16,6 +16,7 @@ export function FindBar() {
   const searching = useFind((s) => s.searching)
   const focusNonce = useFind((s) => s.focusNonce)
   const pages = useEditor((s) => s.doc?.pages)
+  const ocr = useEditor((s) => s.doc?.ocr)
   const inputRef = useRef<HTMLInputElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -25,11 +26,11 @@ export function FindBar() {
     inputRef.current?.select()
   }, [open, focusNonce])
 
-  // Page order / content changed: search again so highlights stay correct.
+  // Page order / content / recognized text changed: search again so highlights stay correct.
   useEffect(() => {
     const q = useFind.getState().query
     if (open && q) void runFind(q)
-  }, [pages, open])
+  }, [pages, ocr, open])
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current)

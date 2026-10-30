@@ -3,7 +3,7 @@
  * getTextContent() and maps matches back to rectangles in page space (points, unrotated,
  * top-left origin — see src/core/model.ts).
  */
-import type { Box, SourceDocument } from '@core'
+import { readingFrame, readingPoint, toReading, type Box, type OcrPageResult, type SourceDocument } from '@core'
 import { getPdfPage } from './pdfjs'
 
 interface IndexedItem {
@@ -97,6 +97,45 @@ export function buildIndex(
     if (item.hasEOL) text += ' '
   }
   return { text, items }
+}
+
+const ocrCache = new WeakMap<OcrPageResult, PageTextIndex>()
+
+/**
+ * Searchable text of an OCR result: words separated by spaces, lines by a space (like
+ * end-of-line text items), each word an item on its line's baseline.
+ */
+export function getOcrTextIndex(result: OcrPageResult): PageTextIndex {
+  const cached = ocrCache.get(result)
+  if (cached) return cached
+  let text = ''
+  const items: IndexedItem[] = []
+  for (const line of result.lines) {
+    const frame = readingFrame(line.box, result.rotation)
+    // rectsForRange covers 0.85 × up above the baseline: reach the top of the line.
+    const upLength = line.baseline / 0.85
+    const up: [number, number] = [-frame.v.x * upLength, -frame.v.y * upLength]
+    line.words.forEach((word, i) => {
+      if (i > 0) text += ' '
+      const wf = readingFrame(word.box, result.rotation)
+      const x = toReading(frame, wf.origin).x
+      const o = readingPoint(frame, x, line.baseline)
+      const start = text.length
+      text += word.text
+      items.push({
+        str: word.text,
+        start,
+        end: text.length,
+        origin: [o.x, o.y],
+        advance: [frame.u.x * wf.width, frame.u.y * wf.width],
+        up
+      })
+    })
+    if (line.words.length) text += ' '
+  }
+  const index = { text, items }
+  ocrCache.set(result, index)
+  return index
 }
 
 let measureCtx: CanvasRenderingContext2D | null | undefined

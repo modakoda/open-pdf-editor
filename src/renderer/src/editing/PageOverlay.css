@@ -484,3 +484,17 @@
   display: block;
   z-index: 1;
 }
+/* Recognized text lines (OCR) in Edit content. */
+.ed-ocr-line {
+  cursor: text;
+  outline: 1px dashed rgba(37, 99, 235, 0.35);
+  outline-offset: 1px;
+}
+.ed-ocr-line:hover {
+  outline-color: var(--selection);
+  background: var(--accent-soft);
+}
+.ed-ocr-line[data-selected='true'] {
+  outline: 2px solid var(--selection);
+  background: var(--accent-soft);
+}

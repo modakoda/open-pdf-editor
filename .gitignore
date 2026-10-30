@@ -10,3 +10,4 @@ playwright-report/
 src/renderer/public/pdfjs/
 tests/fixtures/generated/
 tests/e2e/.tmp/
+src/renderer/public/ocr/

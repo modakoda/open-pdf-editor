@@ -22,6 +22,8 @@ import {
   type ShapeObject,
   type TextObject
 } from '@core'
+import { makeLineEditable } from '@renderer/actions/ocr'
+import { selectOcrLine } from '@renderer/state/ocr'
 import { useEditor, type ElementRef } from '@renderer/state/store'
 import { useContentItems, useNearViewport } from './contentItems'
 import { useEditing } from './editingState'
@@ -58,6 +60,7 @@ import {
   type ResizeHandle
 } from './manip'
 import { NotePopover } from './NotePopover'
+import { OcrLinesLayer } from './OcrLines'
 import { ObjectView, inkPathD } from './ObjectView'
 import {
   DEFAULT_TEXT_WIDTH,
@@ -567,6 +570,13 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
         return
       }
       case 'edit-content': {
+        const ocrEl = target.closest('[data-ocr-line-id]') as HTMLElement | null
+        if (ocrEl) {
+          s.selectElement(null)
+          selectOcrLine({ pageId: page.id, lineId: ocrEl.dataset.ocrLineId! })
+          return
+        }
+        selectOcrLine(null)
         if (handleOnSelectedElement(target, base, 'content')) return
         const itemEl = target.closest('[data-content-id]') as HTMLElement | null
         if (itemEl) {
@@ -673,6 +683,11 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
     const onHandle = !!target.closest('[data-handle]')
     const s = useEditor.getState()
     if (tool === 'edit-content') {
+      const ocrEl = target.closest('[data-ocr-line-id]') as HTMLElement | null
+      if (ocrEl) {
+        makeLineEditable(page.id, ocrEl.dataset.ocrLineId!, { edit: true })
+        return
+      }
       const itemEl = target.closest('[data-content-id]') as HTMLElement | null
       const sel = s.selectedElement
       const id = itemEl?.dataset.contentId ?? (onHandle && sel?.kind === 'content' && sel.pageId === page.id ? sel.itemId : undefined)
@@ -833,6 +848,11 @@ export function PageOverlay({ page, pageIndex, scale }: PageOverlayProps) {
       {tool === 'edit-content' && (
         <div className="ed-layer" style={layerStyle}>
           <ContentItemsLayer doc={doc} page={page} items={items} scale={scale} selected={selElement} live={live} />
+        </div>
+      )}
+      {tool === 'edit-content' && !!doc.ocr?.[page.id]?.lines.length && (
+        <div className="ed-layer" style={layerStyle}>
+          <OcrLinesLayer page={page} result={doc.ocr[page.id]} scale={scale} />
         </div>
       )}
       <div className="ed-layer" style={layerStyle}>

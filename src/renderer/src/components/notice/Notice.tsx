@@ -6,6 +6,8 @@ import './notice.css'
 
 const INFO_MS = 4000
 const ERROR_MS = 10000
+/** Notices that offer an action stay longer. */
+const ACTION_MS = 20000
 
 export function Notice() {
   const notice = useEditor((s) => s.notice)
@@ -15,7 +17,7 @@ export function Notice() {
     if (!notice) return
     const t = setTimeout(() => {
       if (useEditor.getState().notice === notice) clear()
-    }, notice.kind === 'error' ? ERROR_MS : INFO_MS)
+    }, notice.action ? ACTION_MS : notice.kind === 'error' ? ERROR_MS : INFO_MS)
     return () => clearTimeout(t)
   }, [notice, clear])
 
@@ -32,6 +34,20 @@ export function Notice() {
       >
         <Icon size={16} aria-hidden="true" className="notice-icon" />
         <span className="notice-text">{notice.text}</span>
+        {notice.action && (
+          <button
+            type="button"
+            className="notice-action"
+            data-testid="notice-action"
+            onClick={() => {
+              const { action } = notice
+              clear()
+              action?.run()
+            }}
+          >
+            {notice.action.label}
+          </button>
+        )}
         <button type="button" className="notice-close" aria-label="Dismiss" title="Dismiss" onClick={clear}>
           <X size={14} aria-hidden="true" />
         </button>

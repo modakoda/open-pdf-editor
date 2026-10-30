@@ -119,6 +119,53 @@ export interface SourcePageInfo {
    * object ids where they would clash). Their ids are the ids in `restoredObjectIds`.
    */
   restoredObjects?: EditObject[]
+  /**
+   * Text recognized on this page in an earlier save (its invisible text layer is marked with
+   * OCR_LAYER_ID, which is then also in `restoredObjectIds`). openDocument() and
+   * insertSourcePages() copy it into EditorDocument.ocr.
+   */
+  restoredOcr?: OcrPageResult
+}
+
+/** A word found by text recognition (OCR) on a scanned page. */
+export interface OcrWord {
+  text: string
+  /** Bounds in page space. */
+  box: Box
+  /** Recognition confidence, 0..100. */
+  confidence: number
+}
+
+/** A line of recognized text: its words in reading order. */
+export interface OcrLine {
+  /** Unique within its page result. */
+  id: string
+  words: OcrWord[]
+  /** Bounds in page space. */
+  box: Box
+  /**
+   * Distance from the line's top edge to its baseline, in points, measured in reading
+   * orientation (see OcrPageResult.rotation): for rotation 90 the "top" edge is the left edge
+   * of `box` in page space, for 180 the bottom edge, for 270 the right edge.
+   */
+  baseline: number
+  /** Background color around the line in the scan (used to cover it, see makeOcrLineEditable). */
+  background?: Color
+  /** Color of the line's ink in the scan. */
+  color?: Color
+}
+
+/** Text recognized on one page. Words are written into the saved file as invisible text. */
+export interface OcrPageResult {
+  /** Tesseract language codes used, e.g. ['eng', 'lit']. */
+  languages: string[]
+  /**
+   * Orientation the text reads in: the clockwise rotation (degrees) that shows page space
+   * upright for reading — the page's displayed rotation when it was recognized. Text runs
+   * along +x in page space for 0, along -y for 90, along -x for 180 and along +y for 270.
+   */
+  rotation: Rotation
+  lines: OcrLine[]
 }
 
 /** An annotation that already exists in a source page (comment, highlight, link, stamp…). */
@@ -498,6 +545,8 @@ export interface EditorDocument {
   annotationEdits?: Record<string, AnnotationEdit[]>
   /** Structural edits to existing form fields: sourceId → original field name → edit. */
   fieldEdits?: Record<string, Record<string, FieldEdit>>
+  /** Text recognized on scanned pages (OCR): pageId → result. See src/core/ocr.ts. */
+  ocr?: Record<string, OcrPageResult>
 }
 
 /** Standard page sizes in points. */

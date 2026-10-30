@@ -67,3 +67,18 @@
   opacity: 1;
   background: rgba(255, 255, 255, 0.15);
 }
+.notice-action {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.notice-action:hover {
+  background: rgba(127, 127, 127, 0.2);
+}

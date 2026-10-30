@@ -31,6 +31,15 @@ checkbox, radio, dropdown, list and signature fields; optionally flatten forms o
 **Document**: title/author/subject/keywords, watermark, page numbers, password protection (AES-256),
 removing a password from a file you can open, printing.
 
+**Text recognition (OCR)**: make scanned pages searchable, copyable and editable, fully offline
+(Tesseract via [tesseract.js](https://github.com/naptha/tesseract.js), with English and Lithuanian
+bundled). Scanned pages (images without text) are detected when a file is opened and OCR is offered.
+Document → Recognize Text… (or OCR in the toolbar) recognizes the current page, selected pages or all
+pages, with progress and Cancel. Recognized text is searchable with Find right away and is saved as
+an invisible text layer over the scan, so selecting, searching and copying work in any PDF viewer.
+In Edit content, a recognized line can be turned into editable text ("Make editable" covers the line
+in the scan and puts the recognized text in its place). Undo works for both.
+
 **Editor**: undo/redo for every change, zoom and fit modes, thumbnails, keyboard shortcuts,
 drag and drop, "Open With" / file associations, recent files, unsaved-changes protection.
 
@@ -48,6 +57,8 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
   change them under Security. A file opened with only its owner password (AES-256) keeps an
   unknown open password; set a new one if you change its security settings.
 - PDF/A files lose their PDF/A claim if you add a password (PDF/A does not allow encryption).
+- OCR quality depends on the scan (about 300 dpi, straight, clear print works best). Only English and
+  Lithuanian recognition data are bundled; text in other languages is recognized less accurately.
 
 ## Download / build
 
@@ -90,8 +101,12 @@ src/preload    Secure bridge between UI and main process
 src/shared     IPC contract
 tests/         core, renderer and e2e tests, fixture PDFs
 resources/     bundled fonts
+scripts/       asset copying (pdf.js resources, OCR engine and language data)
 ```
 
 ## License
 
-MIT. Bundled Noto fonts: SIL Open Font License 1.1.
+MIT. Bundled Noto fonts: SIL Open Font License 1.1. Text recognition: tesseract.js and
+tesseract.js-core (Tesseract OCR) under the Apache License 2.0, recognition data from
+tesseract-ocr/tessdata_best (Apache License 2.0); the license texts ship with the app
+(`ocr/NOTICE.txt` next to the renderer files).

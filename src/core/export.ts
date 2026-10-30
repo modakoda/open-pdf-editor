@@ -34,6 +34,7 @@ import {
 } from './exportForms'
 import { detachAllWidgets, drawBurns, pageWidgets, widgetBurn, type WidgetBurn } from './flatten'
 import { drawObject, drawPageNumber, drawWatermark, isolateExistingContent, type DrawTarget } from './exportDraw'
+import { drawOcrTextLayer } from './exportOcr'
 import { collectRemoved, deleteRemovedAnnotations, pruneDestinations, pruneStructureTree } from './prune'
 import {
   applyEncryption,
@@ -374,7 +375,7 @@ function selectPages(doc: EditorDocument, pageIds?: string[]): PageEntry[] {
  * - preserves the primary source's structure (forms, links, annotations, outline) where possible,
  * - applies page order / rotation / deletion / blank pages / pages from other sources,
  * - fills form values (and flattens if settings.flattenForms),
- * - draws all EditObjects, watermark and page numbers,
+ * - draws all EditObjects, watermark and page numbers, and recognized text (OCR) as invisible text,
  * - writes metadata and applies encryption settings.
  *
  * Notes: a page that appears more than once (duplicates) keeps its interactive form fields
@@ -534,7 +535,7 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   }
   if (doc.settings.flattenForms && hasAcroForm(out)) await flattenForm(out, out.getForm(), finalPages, cache)
 
-  // 8. Draw objects, watermark and page numbers.
+  // 8. Draw the invisible text of OCR results, objects, watermark and page numbers.
   const objectsByPage = new Map<string, EditObject[]>()
   for (const obj of doc.objects) {
     let list = objectsByPage.get(obj.pageId)
@@ -550,9 +551,11 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     const rotation: Rotation = displayRotation(entry)
     page.setRotation(degrees(rotation))
     const objects = objectsByPage.get(entry.id) ?? []
-    if (!objects.length && !watermark && !pageNumbers) continue
+    const ocr = doc.ocr?.[entry.id]
+    if (!objects.length && !watermark && !pageNumbers && !ocr?.lines.length) continue
     const target: DrawTarget = { doc: out, page, box: visibleBox(page), rotation }
     isolateExistingContent(page)
+    if (ocr) await drawOcrTextLayer(target, ocr, cache)
     for (const obj of objects) {
       try {
         await drawObject(target, obj, cache)
@@ -566,15 +569,16 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     if (pageNumbers) await drawPageNumber(target, pageNumbers, i, plan.length, cache)
   }
 
-  // 9. Keep the EditObjects editable after reopening (after all drawing: the data includes a
-  //    fingerprint of the final page content).
+  // 9. Keep the EditObjects editable (and OCR results) after reopening (after all drawing: the
+  //    data includes a fingerprint of the final page content).
   const lastModified = PDFString.fromDate(new Date())
   for (const item of plan) {
     const page = item.page!
     clearPageObjects(page)
     untagAnnotations(out.context, page)
     const objects = objectsByPage.get(item.entry.id)
-    if (objects?.length) writePageObjects(out, page, objects, lastModified)
+    const ocr = doc.ocr?.[item.entry.id]
+    if (objects?.length || ocr) writePageObjects(out, page, objects ?? [], lastModified, ocr)
   }
 
   // 10. Metadata, cleanup, encryption, save.

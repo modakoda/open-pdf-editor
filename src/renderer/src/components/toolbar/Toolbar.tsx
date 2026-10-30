@@ -24,6 +24,7 @@ import {
   RotateCw,
   Save,
   SaveAll,
+  ScanText,
   Scissors,
   Search,
   Trash,
@@ -321,6 +322,15 @@ function PageBar({ pageCount }: { pageCount: number }) {
           text="Page numbers"
           showLabel
           onClick={run('page-numbers')}
+        />
+        <IconButton
+          testId="btn-ocr"
+          icon={ScanText}
+          label="Recognize text (OCR)…"
+          text="OCR"
+          showLabel
+          disabled={noPages}
+          onClick={run('recognize-text')}
         />
         <IconButton
           testId="btn-security"

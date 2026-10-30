@@ -20,8 +20,9 @@ import {
 } from '@cantoo/pdf-lib'
 import { createId } from './ids'
 import { colorFromComponents, objectMark, readPageAnnotations } from './annotations'
-import { readPageObjects } from './persist'
-import { restoredObjectsFor } from './operations'
+import { readPageData } from './persist'
+import { restoredObjectsFor, restoredOcrFor } from './operations'
+import { OCR_LAYER_ID } from './ocr'
 import { PAGE_SIZES } from './model'
 import { allPermissionsGranted } from './security'
 import type {
@@ -203,14 +204,14 @@ function toPageBox(r: PdfBox, vb: PdfBox): Box {
   return { x: r.x - vb.x, y: vb.y + vb.height - (r.y + r.height), width: r.width, height: r.height }
 }
 
-/** Objects stored by an earlier export, per page; pages whose data is unusable are skipped. */
-function readRestoredObjects(doc: PDFDocument, pages: PDFPage[]): (EditObject[] | undefined)[] {
+/** Objects (and OCR results) stored by an earlier export, per page; pages whose data is unusable are skipped. */
+function readRestoredObjects(doc: PDFDocument, pages: PDFPage[]): (ReturnType<typeof readPageData> | undefined)[] {
   const used = new Set<string>()
   return pages.map((p) => {
-    const objects = readPageObjects(doc, p)
-    if (!objects || objects.some((o) => used.has(o.id))) return undefined
-    for (const o of objects) used.add(o.id)
-    return objects
+    const data = readPageData(doc, p)
+    if (!data || data.objects.some((o) => used.has(o.id))) return undefined
+    for (const o of data.objects) used.add(o.id)
+    return data
   })
 }
 
@@ -284,7 +285,8 @@ export async function loadSource(bytes: Uint8Array, name: string, options?: Load
   const { doc } = opened
   const pages = doc.getPages()
   const boxes = pages.map(visibleBox)
-  const restored = readRestoredObjects(doc, pages)
+  const restoredData = readRestoredObjects(doc, pages)
+  const restored = restoredData.map((d) => (d && (d.objects.length || !d.ocr) ? d.objects : undefined))
   const restoredIds = new Set(restored.flatMap((objs) => (objs ?? []).map((o) => o.id)))
   const live = new Map<string, LiveFieldState>()
   const formFields = readFormFields(doc, pages, boxes, restoredIds, live)
@@ -300,6 +302,11 @@ export async function loadSource(bytes: Uint8Array, name: string, options?: Load
     if (objects) {
       info.restoredObjectIds = objects.map((o) => o.id)
       info.restoredObjects = refreshRestored(doc, p, boxes[i], i, objects, live)
+    }
+    const ocr = restoredData[i]?.ocr
+    if (ocr) {
+      info.restoredOcr = ocr
+      info.restoredObjectIds = [...(info.restoredObjectIds ?? []), OCR_LAYER_ID]
     }
     return info
   })
@@ -366,6 +373,7 @@ export function documentFromSource(source: SourceDocument): EditorDocument {
     sources: { [source.id]: source },
     pages,
     objects: restoredObjectsFor(source, pages, new Set()),
+    ...restoredOcrFor(source, pages),
     formValues: {},
     settings: {
       metadata: {},

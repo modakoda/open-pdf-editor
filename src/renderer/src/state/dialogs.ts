@@ -31,6 +31,7 @@ export type DialogRequest =
   | { kind: 'extract'; initialRange?: string }
   | { kind: 'split' }
   | { kind: 'insert'; source: SourceDocument }
+  | { kind: 'ocr'; scope?: 'current' | 'all' | 'selected'; skipPagesWithText?: boolean }
   | { kind: 'about' }
 
 export type DialogKind = DialogRequest['kind']

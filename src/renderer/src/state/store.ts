@@ -62,6 +62,12 @@ export interface PendingImage {
 
 export type FitMode = 'width' | 'page' | null
 
+/** A button on a notice (e.g. "Recognize text…" when a scanned document was opened). */
+export interface NoticeAction {
+  label: string
+  run: () => void
+}
+
 /** Which list the left sidebar shows. */
 export type SidebarTab = 'pages' | 'fields'
 
@@ -102,7 +108,7 @@ export interface EditorState {
   selectedElement: ElementRef | null
   pendingImage: PendingImage | null
   /** Transient status message shown in the status bar / toast. */
-  notice: { kind: 'info' | 'error'; text: string; id?: number } | null
+  notice: { kind: 'info' | 'error'; text: string; id?: number; action?: NoticeAction } | null
   /** Document snapshot that matches the file on disk (dirty = doc !== savedDoc). */
   savedDoc: EditorDocument | null
   /** Long-running operation in progress (saving, exporting…); shown in the status bar. */
@@ -142,7 +148,7 @@ export interface EditorState {
   selectObject(id: string | null): void
   selectElement(ref: ElementRef | null): void
   setPendingImage(image: PendingImage | null): void
-  showNotice(kind: 'info' | 'error', text: string): void
+  showNotice(kind: 'info' | 'error', text: string, action?: NoticeAction): void
   clearNotice(): void
   setBusy(busy: string | null): void
 }
@@ -303,8 +309,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
   setPendingImage(pendingImage) {
     set({ pendingImage })
   },
-  showNotice(kind, text) {
-    set({ notice: { kind, text, id: ++noticeCounter } })
+  showNotice(kind, text, action) {
+    set({ notice: { kind, text, id: ++noticeCounter, ...(action ? { action } : {}) } })
   },
   clearNotice() {
     set({ notice: null })

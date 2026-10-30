@@ -12,10 +12,13 @@
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
     "@cantoo/pdf-lib": "^2.11.1",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/lit": "^1.0.0",
     "lucide-react": "^1.62.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "tesseract.js": "^7.0.0",
     "zustand": "^5.0.16"
   },
   "devDependencies": {
@@ -36,7 +39,7 @@
     "vitest": "^5.0.5"
   },
   "scripts": {
-    "assets": "node scripts/copy-pdfjs-assets.mjs",
+    "assets": "node scripts/copy-pdfjs-assets.mjs && node scripts/copy-ocr-assets.mjs",
     "predev": "npm run assets",
     "dev": "electron-vite dev",
     "prebuild": "npm run assets",

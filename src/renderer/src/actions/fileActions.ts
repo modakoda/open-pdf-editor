@@ -6,6 +6,7 @@ import type { OpenedFile } from '@shared/ipc'
 import { isDesktop, platform } from '@renderer/platform'
 import { releasePdfResources } from '@renderer/pdf/resources'
 import { openDialog, type ConfirmResult } from '@renderer/state/dialogs'
+import { offerOcrForScannedPages } from './ocr'
 import { baseName, editor, isPasswordError, notifyError, notifyInfo } from './util'
 
 export const UNTITLED_NAME = 'Untitled.pdf'
@@ -93,6 +94,7 @@ export async function openFileHere(file: OpenedFile): Promise<boolean> {
     )
     if (!doc) return false
     installDocument(doc, { filePath: file.path, fileName: file.name })
+    void offerOcrForScannedPages()
     return true
   } catch (err) {
     notifyError(`Could not open ${file.name}`, err)

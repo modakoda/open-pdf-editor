@@ -34,6 +34,22 @@ y down. Helpers in `src/core/geometry.ts`:
 - The page's visible box is the crop box intersected with the media box (same as pdf.js `page.view`).
 - pdf.js: `page.getViewport({ scale: 1, rotation: 0 })` maps PDF user space to page space.
 
+### Text recognition (OCR)
+
+`EditorDocument.ocr` holds recognized text per page (`OcrPageResult`: lines of words with page-space
+boxes, confidence, the baseline, and the reading orientation `rotation`). `src/core/ocr.ts` has the
+pure operations (`setOcrResults`, `makeOcrLineEditable`, `looksScanned`, `ocrResultFromRecognition`).
+The renderer recognizes pages with tesseract.js in a Web Worker (`src/renderer/src/ocr/engine.ts`):
+the page is rendered with pdf.js at 300 dpi with its displayed rotation (`ocr/render.ts`) and the
+pixel boxes are mapped back to page space. Worker, WebAssembly core (LSTM-only, SIMD and plain) and
+the eng/lit language data are copied into `public/ocr` by `scripts/copy-ocr-assets.mjs` and loaded
+from the app's own origin (`app://bundle/ocr/…`); the worker is started from its URL (not `blob:`),
+so it can compile WebAssembly without relaxing the page's CSP. `exportOcr.ts` writes the words as
+invisible text (render mode 3, embedded Noto Sans subset, `Tz` to fit each word's width) inside
+`/OPEObject <</Id (ope-ocr-layer)>> BDC … EMC`; the result is also stored in the page's /PieceInfo
+(persist.ts), so on reopening it is restored (`SourcePageInfo.restoredOcr`) and a later save
+replaces the layer instead of adding another. Find searches `doc.ocr` next to the pages' own text.
+
 ### Fonts
 
 Text objects use `font: 'sans' | 'serif' | 'mono'`. Text encodable in WinAnsi is exported with the
@@ -67,7 +83,7 @@ The viewer renders each page as:
 | Element | Test id / attributes |
 | --- | --- |
 | Welcome screen | `welcome`; buttons `welcome-open`, `welcome-new` |
-| Toolbar buttons | `btn-open`, `btn-save`, `btn-save-as`, `btn-undo`, `btn-redo`, `btn-zoom-in`, `btn-zoom-out`, `btn-fit-width`, `btn-rotate-cw`, `btn-rotate-ccw`, `btn-delete-pages`, `btn-insert-blank`, `btn-insert-pages`, `btn-extract`, `btn-split`, `btn-properties`, `btn-watermark`, `btn-page-numbers`, `btn-security`, `btn-print`, `btn-find` |
+| Toolbar buttons | `btn-open`, `btn-save`, `btn-save-as`, `btn-undo`, `btn-redo`, `btn-zoom-in`, `btn-zoom-out`, `btn-fit-width`, `btn-rotate-cw`, `btn-rotate-ccw`, `btn-delete-pages`, `btn-insert-blank`, `btn-insert-pages`, `btn-extract`, `btn-split`, `btn-properties`, `btn-watermark`, `btn-page-numbers`, `btn-ocr`, `btn-security`, `btn-print`, `btn-find` |
 | Zoom label | `zoom-level` (text like `100%`) |
 | Tool buttons | `tool-<ToolId>` e.g. `tool-text`, `tool-rect`, `tool-ink` |
 | Sidebar | `sidebar`; each thumbnail `thumbnail` with `data-page-id`, `data-page-index`, `data-selected="true|false"` |
@@ -78,8 +94,9 @@ The viewer renders each page as:
 | Properties panel | `properties-panel` |
 | Form fields | `form-field` with `data-field-name` (the input element itself) |
 | Status bar | `page-count` (text: number of pages), `current-page` (1-based) |
-| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
-| Notices | `notice` with `data-kind="info|error"` |
+| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find|ocr"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
+| Notices | `notice` with `data-kind="info|error"`; optional button `notice-action` |
+| Text recognition | toolbar `btn-ocr`; dialog `data-dialog="ocr"` with `ocr-scope-current|all|selected`, `ocr-skip-text`, `ocr-lang-<code>`, `ocr-progress`, `ocr-progress-bar`; Edit content: `ocr-line` (`data-ocr-line-id`), panel `ocr-line-text`, `ocr-make-editable`, `ocr-copy` |
 
 ## Commands
 

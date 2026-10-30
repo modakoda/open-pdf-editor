@@ -48,13 +48,13 @@ export function deletePages(doc: EditorDocument, pageIds: string[]): EditorDocum
   }
 }
 
-/** contentEdits / annotationEdits without the given pages (only keys that exist are returned). */
+/** contentEdits / annotationEdits / ocr without the given pages (only keys that exist are returned). */
 function withoutPages(
   doc: EditorDocument,
   ids: Set<string>
-): Pick<EditorDocument, 'contentEdits' | 'annotationEdits'> {
-  const out: Pick<EditorDocument, 'contentEdits' | 'annotationEdits'> = {}
-  for (const key of ['contentEdits', 'annotationEdits'] as const) {
+): Pick<EditorDocument, 'contentEdits' | 'annotationEdits' | 'ocr'> {
+  const out: Pick<EditorDocument, 'contentEdits' | 'annotationEdits' | 'ocr'> = {}
+  for (const key of ['contentEdits', 'annotationEdits', 'ocr'] as const) {
     const map = doc[key]
     if (!map) continue
     out[key] = Object.fromEntries(Object.entries(map).filter(([pageId]) => !ids.has(pageId))) as never
@@ -108,6 +108,7 @@ export function duplicatePages(doc: EditorDocument, pageIds: string[]): EditorDo
   const newObjects: EditObject[] = []
   const contentEdits = doc.contentEdits ? { ...doc.contentEdits } : undefined
   const annotationEdits = doc.annotationEdits ? { ...doc.annotationEdits } : undefined
+  const ocr = doc.ocr ? { ...doc.ocr } : undefined
   for (const p of doc.pages) {
     pages.push(p)
     if (!ids.has(p.id)) continue
@@ -119,13 +120,15 @@ export function duplicatePages(doc: EditorDocument, pageIds: string[]): EditorDo
     newObjects.push(...withUniqueFieldNames(doc, copies, newObjects))
     if (contentEdits?.[p.id]) contentEdits[copy.id] = contentEdits[p.id]
     if (annotationEdits?.[p.id]) annotationEdits[copy.id] = annotationEdits[p.id]
+    if (ocr?.[p.id]) ocr[copy.id] = ocr[p.id]
   }
   return {
     ...doc,
     pages,
     objects: newObjects.length ? [...doc.objects, ...newObjects] : doc.objects,
     ...(contentEdits ? { contentEdits } : {}),
-    ...(annotationEdits ? { annotationEdits } : {})
+    ...(annotationEdits ? { annotationEdits } : {}),
+    ...(ocr ? { ocr } : {})
   }
 }
 
@@ -159,13 +162,26 @@ export function insertSourcePages(
     doc,
     restoredObjectsFor(source, newPages, new Set(doc.objects.map((o) => o.id)))
   )
+  const restoredOcr = restoredOcrFor(source, newPages).ocr
   return {
     ...doc,
     primarySourceId: doc.primarySourceId ?? source.id,
     sources: { ...doc.sources, [source.id]: source },
     pages: [...doc.pages.slice(0, i), ...newPages, ...doc.pages.slice(i)],
-    objects: restored.length ? [...doc.objects, ...restored] : doc.objects
+    objects: restored.length ? [...doc.objects, ...restored] : doc.objects,
+    ...(restoredOcr ? { ocr: { ...doc.ocr, ...restoredOcr } } : {})
   }
+}
+
+/** OCR results restored from `source` (SourcePageInfo.restoredOcr) for the given page entries. */
+export function restoredOcrFor(source: SourceDocument, pages: PageEntry[]): Pick<EditorDocument, 'ocr'> {
+  const ocr: NonNullable<EditorDocument['ocr']> = {}
+  for (const page of pages) {
+    if (page.source.kind !== 'source' || page.source.sourceId !== source.id) continue
+    const result = source.pageInfo?.[page.source.pageIndex]?.restoredOcr
+    if (result) ocr[page.id] = result
+  }
+  return Object.keys(ocr).length ? { ocr } : {}
 }
 
 /**

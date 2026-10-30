@@ -15,8 +15,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { DesktopApi, MenuAction } from '../../src/shared/ipc'
-import { generateFixtures } from '../fixtures/generate.ts'
-import type { FixtureName } from '../fixtures/pdfs.ts'
+import { generateFixtures, type GeneratedFixtureName as FixtureName } from '../fixtures/generate.ts'
 
 declare global {
   interface Window {
@@ -58,6 +57,7 @@ export const ALL_MENU_ACTIONS: MenuAction[] = [
   'watermark',
   'page-numbers',
   'security',
+  'recognize-text',
   'find',
   'about'
 ]

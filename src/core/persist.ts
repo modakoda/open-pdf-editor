@@ -29,7 +29,7 @@ import {
   type PDFObject,
   type PDFPage
 } from '@cantoo/pdf-lib'
-import type { EditObject, Point } from './model'
+import type { Box, EditObject, OcrLine, OcrPageResult, OcrWord, Point } from './model'
 
 const N = (s: string) => PDFName.of(s)
 const APP = N('OpenPDFEditor')
@@ -107,8 +107,17 @@ export function clearPageObjects(page: PDFPage): void {
   else page.node.delete(N('PieceInfo'))
 }
 
-/** Store `objects` (the page's EditObjects, in z-order) in the page's /PieceInfo. Call after all drawing. */
-export function writePageObjects(pdf: PDFDocument, page: PDFPage, objects: EditObject[], lastModified: PDFString): void {
+/**
+ * Store `objects` (the page's EditObjects, in z-order) and the page's OCR result in the page's
+ * /PieceInfo. Call after all drawing.
+ */
+export function writePageObjects(
+  pdf: PDFDocument,
+  page: PDFPage,
+  objects: EditObject[],
+  lastModified: PDFString,
+  ocr?: OcrPageResult
+): void {
   const ctx = pdf.context
   const images = new Map<Uint8Array, string>()
   const imageDict = ctx.obj({})
@@ -123,7 +132,7 @@ export function writePageObjects(pdf: PDFDocument, page: PDFPage, objects: EditO
     }
     return { ...rest, data: { $image: key } }
   })
-  const json = JSON.stringify({ version: FORMAT_VERSION, objects: stored })
+  const json = JSON.stringify({ version: FORMAT_VERSION, objects: stored, ...(ocr ? { ocr } : {}) })
   const objectsStream = ctx.register(ctx.flateStream(new TextEncoder().encode(json)))
   const priv = ctx.obj({
     Version: FORMAT_VERSION,
@@ -195,11 +204,45 @@ function decodeStream(ctx: PDFContext, o: PDFObject | undefined): Uint8Array | u
   }
 }
 
+function validOcr(o: unknown): o is OcrPageResult {
+  if (!o || typeof o !== 'object') return false
+  const r = o as Record<string, unknown>
+  const isBoxValue = (b: unknown): b is Box => !!b && typeof b === 'object' && isBox(b as Record<string, unknown>)
+  const validWord = (w: unknown) => {
+    const word = w as OcrWord | null
+    return !!word && isStr(word.text) && isBoxValue(word.box) && isNum(word.confidence)
+  }
+  const ids = new Set<string>()
+  const validLine = (l: unknown) => {
+    const line = l as OcrLine | null
+    if (!line || !isStr(line.id) || ids.has(line.id) || !isBoxValue(line.box) || !isNum(line.baseline)) return false
+    if (line.background !== undefined && !isColor(line.background)) return false
+    if (line.color !== undefined && !isColor(line.color)) return false
+    ids.add(line.id)
+    return Array.isArray(line.words) && line.words.every(validWord)
+  }
+  return (
+    Array.isArray(r.languages) &&
+    r.languages.every(isStr) &&
+    [0, 90, 180, 270].includes(r.rotation as number) &&
+    Array.isArray(r.lines) &&
+    r.lines.every(validLine)
+  )
+}
+
 /**
  * Objects stored on the page by an earlier export, with pageId '' (the caller assigns it).
  * Undefined when there is no data or it cannot be trusted.
  */
 export function readPageObjects(pdf: PDFDocument, page: PDFPage): EditObject[] | undefined {
+  return readPageData(pdf, page)?.objects
+}
+
+/**
+ * Everything stored on the page by an earlier export: its EditObjects (pageId '') and its OCR
+ * result. Undefined when there is no data or it cannot be trusted.
+ */
+export function readPageData(pdf: PDFDocument, page: PDFPage): { objects: EditObject[]; ocr?: OcrPageResult } | undefined {
   const ctx = pdf.context
   try {
     const piece = page.node.lookup(N('PieceInfo'))
@@ -216,8 +259,9 @@ export function readPageObjects(pdf: PDFDocument, page: PDFPage): EditObject[] |
     if (dateText(priv.lookup(N('ContentFingerprint'))) !== contentFingerprint(ctx, page)) return undefined
     const json = decodeStream(ctx, priv.get(N('Objects')))
     if (!json) return undefined
-    const parsed = JSON.parse(new TextDecoder().decode(json)) as { version?: unknown; objects?: unknown }
+    const parsed = JSON.parse(new TextDecoder().decode(json)) as { version?: unknown; objects?: unknown; ocr?: unknown }
     if (parsed.version !== FORMAT_VERSION || !Array.isArray(parsed.objects)) return undefined
+    if (parsed.ocr !== undefined && !validOcr(parsed.ocr)) return undefined
     const images = priv.lookup(N('Images'))
     const ids = new Set<string>()
     const objects: EditObject[] = []
@@ -235,7 +279,7 @@ export function readPageObjects(pdf: PDFDocument, page: PDFPage): EditObject[] |
       ids.add(o.id as string)
       objects.push(o as unknown as EditObject)
     }
-    return objects
+    return parsed.ocr ? { objects, ocr: parsed.ocr as OcrPageResult } : { objects }
   } catch {
     return undefined
   }

@@ -4,6 +4,7 @@ import { isBoxObject, reorderObject, type Color, type EditObject, type FontFamil
 import { useEditor, type ToolId, type ToolOptions } from '@renderer/state/store'
 import { useEditing } from './editingState'
 import { AnnotationProperties, ContentProperties, FieldObjectRows, FieldProperties } from './ElementProperties'
+import { OcrLineProperties, useSelectedOcrLine } from './OcrLines'
 import { FIELD_TYPE_LABELS } from './fields'
 import { deleteSelected, duplicateSelected, findObject, hasRotation, updateObjectFitted } from './objects'
 import { ColorInput, FontSelect, NumberInput, OpacityInput, Row, Toggle } from './propControls'
@@ -299,6 +300,8 @@ export function PropertiesPanel() {
   const options = useEditor((s) => s.toolOptions)
   const apply = useEditor((s) => s.apply)
   const obj = findObject(doc, selectedId)
+  const ocrLine = useSelectedOcrLine()
+  if (ocrLine && !obj && !selectedElement) return <OcrLineProperties key={`${ocrLine.lineRef.pageId}:${ocrLine.lineRef.lineId}`} {...ocrLine} />
 
   if (!obj && doc && selectedElement) {
     const geom = resolveSelected(doc, selectedElement)

@@ -65,6 +65,7 @@ export type MenuAction =
   | 'watermark'
   | 'page-numbers'
   | 'security'
+  | 'recognize-text'
   | 'find'
   | 'about'
 

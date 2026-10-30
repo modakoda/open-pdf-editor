@@ -3,6 +3,7 @@ import { useDialogs } from '@renderer/state/dialogs'
 import { AboutDialog, ConfirmDialog } from './ConfirmDialog'
 import { ExtractDialog } from './ExtractDialog'
 import { InsertPagesDialog } from './InsertPagesDialog'
+import { OcrDialog } from './OcrDialog'
 import { PageNumbersDialog } from './PageNumbersDialog'
 import { PasswordDialog } from './PasswordDialog'
 import { PropertiesDialog } from './PropertiesDialog'
@@ -34,6 +35,8 @@ export function DialogHost() {
       return <SplitDialog key={id} onClose={close} />
     case 'insert':
       return <InsertPagesDialog key={id} source={request.source} onClose={close} />
+    case 'ocr':
+      return <OcrDialog key={id} scope={request.scope} skipPagesWithText={request.skipPagesWithText} onClose={close} />
     case 'about':
       return <AboutDialog key={id} onClose={() => close(null)} />
   }

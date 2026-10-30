@@ -15,6 +15,7 @@ import {
   saveAs
 } from './fileActions'
 import { openFind } from './find'
+import { openOcrDialog } from './ocr'
 import {
   deleteSelection,
   deleteTargetPages,
@@ -158,6 +159,8 @@ async function execute(action: MenuAction): Promise<void> {
     case 'security':
       await openDialog({ kind: 'security' })
       return
+    case 'recognize-text':
+      return openOcrDialog()
     case 'find':
       return openFind()
     case 'about':

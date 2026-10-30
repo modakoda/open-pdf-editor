@@ -1,7 +1,14 @@
-/** Find in document: searches the text of every source page with pdf.js. */
+/** Find in document: searches the text of every source page with pdf.js, and text recognized by OCR. */
 import { boxCenter } from '@core'
 import { getPreviewPage, hasPreviewFailed, previewKeyFor } from '@renderer/pdf/previews'
-import { findAll, getPageTextIndex, getPreviewTextIndex, rectsForRange, type PageTextIndex } from '@renderer/pdf/textSearch'
+import {
+  findAll,
+  getOcrTextIndex,
+  getPageTextIndex,
+  getPreviewTextIndex,
+  rectsForRange,
+  type PageTextIndex
+} from '@renderer/pdf/textSearch'
 import { useFind, type FindMatch } from '@renderer/state/find'
 import { editor } from './util'
 
@@ -63,6 +70,13 @@ export async function runFind(query: string): Promise<void> {
       }
     } catch {
       if (token !== searchToken) return
+    }
+    const ocr = doc.ocr?.[page.id]
+    if (ocr) {
+      const index = getOcrTextIndex(ocr)
+      for (const m of findAll(index.text, query)) {
+        matches.push({ pageId: page.id, rects: rectsForRange(index, m.start, m.end) })
+      }
     }
     // Publish progress so the first results show up quickly on large documents.
     const hadActive = useFind.getState().active >= 0

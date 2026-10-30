@@ -40,9 +40,31 @@ Text objects use `font: 'sans' | 'serif' | 'mono'`. Text encodable in WinAnsi is
 standard PDF fonts (Helvetica/Times/Courier families, not embedded). Other text (e.g. Lithuanian,
 Greek, Cyrillic) is exported with the bundled Noto fonts (`resources/fonts`, embedded as subsets).
 `layoutText()` in `src/core/text.ts` computes line breaks for both the overlay and the exporter,
-so wrapping on screen matches the saved file. The renderer registers the font bytes at startup
-(`src/renderer/src/fonts/fonts.ts`) and declares them for CSS as `OPE Noto Sans`,
+so wrapping on screen matches the saved file (at spaces, and between CJK characters with simple
+punctuation rules: `splitAtCjkBreaks` in `src/core/scripts.ts`). The renderer registers the font
+bytes at startup (`src/renderer/src/fonts/fonts.ts`) and declares them for CSS as `OPE Noto Sans`,
 `OPE Noto Serif`, `OPE Noto Sans Mono` (`fonts.css`).
+
+Text the bundled fonts cannot draw (CJK, Thai, Devanagari) uses system fonts, which are too large
+to bundle:
+
+- `src/main/systemFonts.ts` finds suitable font files per platform (known files in the macOS and
+  Windows font folders, fontconfig `fc-list` on Linux, or a scan of the Linux font folders) and
+  serves them by catalog id over IPC (`listSystemFonts` / `readSystemFont`); nothing else is read.
+- `src/renderer/src/fonts/systemFonts.ts` watches the document's texts (`documentTexts.ts`), loads
+  the best font for each script, CJK language (kana → Japanese, Hangul → Korean, otherwise the UI
+  locale), family and weight on demand, registers it with the engine (`registerFallbackFonts`) and
+  declares the same face for CSS as `OPE Fallback <id>` (`extractCollectionFace` turns a face of a
+  .ttc into a standalone font for the browser). Layouts re-run when `useFallbackFonts().version`
+  changes; saving, printing, extracting and splitting wait for `fontsReadyFor(doc)`.
+- The engine's fallback chain (`prepareText`) keeps one font per text: the bundled face if it has
+  every character, otherwise the registered font that does (collections by PostScript name),
+  preferring language, family, weight, then registration order. Characters no font has, and
+  right-to-left text (not supported yet), become "?" and are reported in `PreparedText.missing`;
+  the renderer shows a notice. `layoutText()` returns the `fontKey` the overlay passes to
+  `cssFontFamily()`.
+- E2E tests replace the system fonts with the OFL test fonts in `tests/fixtures/fonts` via
+  `OPE_E2E_SYSTEM_FONTS` (only with `OPE_E2E=1`).
 
 ## Renderer structure
 

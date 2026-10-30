@@ -3,6 +3,7 @@
  */
 import { createBlankDocument, exportDocument, openDocument, type EditorDocument, type LoadOptions } from '@core'
 import type { OpenedFile } from '@shared/ipc'
+import { fontsReadyFor, unsupportedCharactersIn, unsupportedTextMessage } from '@renderer/fonts/systemFonts'
 import { isDesktop, platform } from '@renderer/platform'
 import { releasePdfResources } from '@renderer/pdf/resources'
 import { openDialog, type ConfirmResult } from '@renderer/state/dialogs'
@@ -249,7 +250,11 @@ async function exportForSave(): Promise<{ doc: EditorDocument; bytes: Uint8Array
   const { doc } = editor()
   if (!doc) return null
   const warnings: string[] = []
+  await fontsReadyFor(doc)
   const bytes = await exportDocument(doc, { onWarning: (w) => warnings.push(w.message) })
+  const unsupported = unsupportedCharactersIn(doc)
+  const message = unsupportedTextMessage(unsupported.missing, unsupported.rtl)
+  if (message) warnings.push(message)
   return { doc, bytes, warnings }
 }
 

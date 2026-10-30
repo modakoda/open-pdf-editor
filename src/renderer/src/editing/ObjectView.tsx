@@ -15,12 +15,13 @@ import {
   type PageEntry,
   type TextObject
 } from '@core'
+import { useFallbackFonts } from '@renderer/fonts/systemFonts'
 import { useEditor } from '@renderer/state/store'
 import { FieldInput, type FieldMode } from './FormFieldsLayer'
 import { FIELD_TYPE_LABELS } from './fields'
 import { useImageUrl } from './images'
 import { NOTE_SIZE } from './objects'
-import { fontStack, safeLayout } from './textLayout'
+import { fontStack, safeLayout, usesFallbackFont } from './textLayout'
 
 export interface ObjectViewProps {
   obj: EditObject
@@ -59,12 +60,13 @@ function attrs(obj: EditObject, selected: boolean, ghost?: boolean) {
 }
 
 function TextView({ obj, scale, selected, editing, ghost }: ObjectViewProps & { obj: TextObject }) {
+  const fontsVersion = useFallbackFonts((s) => s.version)
   const layout = useMemo(
     () => safeLayout(obj),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [obj.text, obj.font, obj.bold, obj.italic, obj.fontSize, obj.lineHeight, obj.width, obj.align]
+    [obj.text, obj.font, obj.bold, obj.italic, obj.fontSize, obj.lineHeight, obj.width, obj.align, fontsVersion]
   )
-  const family = fontStack(obj.font, layout.unicode)
+  const family = fontStack(obj.font, layout.unicode, layout.fontKey)
   const h = Math.max(obj.height, 1)
   const w = Math.max(obj.width, 1)
   return (
@@ -83,7 +85,7 @@ function TextView({ obj, scale, selected, editing, ghost }: ObjectViewProps & { 
             fontStyle={obj.italic ? 'italic' : 'normal'}
             fill={obj.color}
             dominantBaseline="alphabetic"
-            style={{ whiteSpace: 'pre', fontKerning: 'none' }}
+            style={{ whiteSpace: 'pre', fontKerning: 'none', fontSynthesis: usesFallbackFont(layout.fontKey) ? 'none' : undefined }}
           >
             {layout.lines.map((line, i) => (
               <tspan

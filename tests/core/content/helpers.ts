@@ -181,7 +181,7 @@ export function testHelpers(doc: PDFDocument): ContentEditHelpers {
             doc.registerFontkit(fontkit)
             registered = true
           }
-          f = doc.embedFont(font.fontBytes, { subset: true })
+          f = doc.embedFont(font.fontBytes, { subset: true, postscriptName: font.postscriptName })
         } else {
           f = doc.embedFont(font.standardFont)
         }

@@ -2,6 +2,23 @@
  * Contract between the Electron main process, the preload script and the renderer.
  * The preload exposes an object implementing `DesktopApi` as `window.desktop`.
  */
+import type { FontScript, HanLanguage } from '../core/scripts'
+
+/** A font face of the OS for scripts the bundled fonts lack (CJK, Thai, Devanagari). */
+export interface SystemFontInfo {
+  /** Catalog id for readSystemFont (the renderer never sees or sends paths). */
+  id: string
+  /** Display name, e.g. "Hiragino Sans GB W3". */
+  name: string
+  /** Face within a font collection (.ttc/.otc). */
+  postscriptName?: string
+  /** Scripts the font is meant for (the engine checks actual glyph coverage). */
+  scripts: FontScript[]
+  /** CJK fonts: the language its Han glyphs are designed for. */
+  language?: HanLanguage
+  family: 'sans' | 'serif' | 'mono'
+  bold: boolean
+}
 
 export interface OpenedFile {
   /** Absolute path on disk (null for files that did not come from disk). */
@@ -104,6 +121,13 @@ export interface DesktopApi {
   newDocumentWindow?(): Promise<void>
   /** Reveal a file in Finder / Explorer / file manager. */
   showItemInFolder(path: string): void
+  /**
+   * Fallback fonts installed on the system, in order of preference. (Optional: older shells
+   * and the browser lack it.)
+   */
+  listSystemFonts?(): Promise<SystemFontInfo[]>
+  /** Bytes of a font from listSystemFonts(). */
+  readSystemFont?(id: string): Promise<Uint8Array>
   /** Subscribe to menu commands. Returns an unsubscribe function. */
   onMenuAction(callback: (action: MenuAction) => void): () => void
   /** Files opened from the OS (argv, "Open With", dock drop, second instance, recent menu). */
@@ -130,6 +154,8 @@ export const IPC = {
   cancelClose: 'window:cancel-close',
   newDocumentWindow: 'window:new-document-window',
   showItemInFolder: 'shell:show-item-in-folder',
+  listSystemFonts: 'fonts:list-system',
+  readSystemFont: 'fonts:read-system',
   menuAction: 'event:menu-action',
   openFile: 'event:open-file',
   saveBeforeClose: 'event:save-before-close'

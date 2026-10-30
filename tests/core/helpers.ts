@@ -7,6 +7,8 @@ import { registerFonts, type FontAssets, type FontStyleKey } from '../../src/cor
 
 const ROOT = resolve(__dirname, '../..')
 const FONT_DIR = join(ROOT, 'resources/fonts')
+/** Small OFL CJK test fonts (see tests/fixtures/fonts/README.md). */
+export const TEST_FONT_DIR = join(ROOT, 'tests/fixtures/fonts')
 const STANDARD_FONT_DATA_URL = join(ROOT, 'node_modules/pdfjs-dist/standard_fonts') + '/'
 
 const FONT_FILES: Partial<Record<FontStyleKey, string>> = {
@@ -32,6 +34,11 @@ export function loadFontAssets(): FontAssets {
 
 export function registerTestFonts(): void {
   registerFonts(loadFontAssets())
+}
+
+/** Bytes of a test font in tests/fixtures/fonts. */
+export function testFont(file: 'OPETestCJK-Regular.ttf' | 'OPETestCJK.ttc' | 'OPETestJP-Regular.otf'): Uint8Array {
+  return new Uint8Array(readFileSync(join(TEST_FONT_DIR, file)))
 }
 
 const tasks = new WeakMap<object, { destroy(): Promise<void> }>()

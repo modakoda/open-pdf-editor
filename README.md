@@ -16,7 +16,8 @@ graphic already in the page, then move, resize, rotate, recolor or delete it, or
 place. Edits change the page itself: deleted or replaced content is removed from the file, not
 covered up.
 
-**Added content**: text (Unicode, with bundled Noto fonts for characters outside WinAnsi), images,
+**Added content**: text (Unicode: bundled Noto fonts for Latin, Greek and Cyrillic; installed system
+fonts for Chinese, Japanese, Korean, Thai and Devanagari, with CJK line breaking), images,
 signatures (drawn or typed), rectangles, ellipses, lines, arrows, freehand ink, highlights,
 whiteout, and sticky-note comments. Everything you add stays movable and editable, also after
 saving and reopening the file in Open PDF Editor.
@@ -41,7 +42,13 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
 - Moved, resized or retyped content is drawn on top of the page's other content. Text retyped
   with characters the original font lacks uses a similar bundled font.
 - Visible signatures are images; cryptographic digital signatures are not created.
-- Bundled Unicode fonts cover Latin, Greek and Cyrillic. CJK text needs a CJK font (not bundled).
+- Bundled Unicode fonts cover Latin, Greek and Cyrillic. Chinese, Japanese, Korean, Thai and
+  Devanagari text uses fonts installed on the system (e.g. Hiragino, Songti, Apple SD Gothic Neo on
+  macOS, Microsoft YaHei/Yu Gothic/Malgun Gothic on Windows, Noto Sans CJK on Linux), embedded as
+  subsets when saving. Each text is drawn with a single font, so it must contain every character;
+  characters no installed font contains are saved as "?" (the editor tells you which).
+- Right-to-left scripts (Arabic, Hebrew) are not supported yet: they are saved as "?" and the
+  editor shows a notice.
 - When pages from several PDFs with forms are merged, forms of the inserted files are flattened,
   and links on inserted pages that jump within their original file are removed (web links are kept).
 - Password-protected files keep their original encryption and permissions when saved, unless you

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { splitDocument } from '@core'
 import { notifyError, notifyInfo } from '@renderer/actions/util'
+import { fontsReadyFor } from '@renderer/fonts/systemFonts'
 import { platform } from '@renderer/platform'
 import { baseFileName } from '@renderer/state/selectors'
 import { useEditor } from '@renderer/state/store'
@@ -71,6 +72,7 @@ export function SplitDialog({ onClose }: { onClose: (done: boolean | null) => vo
     setBusy(true)
     try {
       const idGroups = groups.map((g) => g.map((i) => doc.pages[i].id))
+      await fontsReadyFor(doc)
       const outputs = await splitDocument(doc, idGroups)
       const folder = await platform.saveFilesToFolder(outputs.map((bytes, i) => ({ name: names[i], bytes })))
       if (folder === null) {

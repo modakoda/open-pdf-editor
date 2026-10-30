@@ -4,6 +4,7 @@
  * styles/print.css shows only that container when printing.
  */
 import { exportDocument } from '@core'
+import { fontsReadyFor } from '@renderer/fonts/systemFonts'
 import { openPdfBytes, pdfjs } from '@renderer/pdf/pdfjs'
 import { editor, notifyError } from './util'
 
@@ -40,6 +41,7 @@ export async function printDocument(): Promise<void> {
   const root = printRoot()
   let task: ReturnType<typeof openPdfBytes> | null = null
   try {
+    await fontsReadyFor(doc)
     const bytes = await exportDocument(doc)
     task = openPdfBytes(bytes, doc.settings.encryption?.userPassword)
     const pdf = await task.promise

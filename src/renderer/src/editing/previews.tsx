@@ -20,7 +20,7 @@ import {
 } from './elementGeometry'
 import { refKey, resolveElement, type ElementChange, type ElementGeom } from './elements'
 import { captureRegion, sampleAroundBox, snapshotRegion, type Snapshot } from './pageCanvas'
-import { fontStack, isUnicodeText, measureContentText } from './textLayout'
+import { measureContentText, textFontStack } from './textLayout'
 
 export const PAGE_RENDERED_EVENT = 'ope:page-rendered'
 
@@ -173,7 +173,7 @@ export function PreviewsLayer({
               angle: (g.item.angle ?? 0) + matrixAngle(t),
               fontSize: (fontSize ?? 12) * verticalScale(t),
               color: color ?? '#000000',
-              font: fontStack(g.item.fontFamily ?? 'sans', isUnicodeText(shown)),
+              font: textFontStack(shown, { font: g.item.fontFamily ?? 'sans', bold: g.item.bold, italic: g.item.italic }),
               bold: g.item.bold,
               italic: g.item.italic
             }

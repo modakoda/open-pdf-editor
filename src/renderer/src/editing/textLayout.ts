@@ -1,5 +1,16 @@
 /** Overlay-side wrappers around the engine's text layout (never throw while rendering). */
-import { cssFontFamily, isWinAnsiEncodable, layoutText, measureText, type FontFamily, type TextLayout, type TextObject } from '@core'
+import {
+  cssFontFamily,
+  fallbackFontId,
+  isWinAnsiEncodable,
+  layoutText,
+  measureText,
+  prepareText,
+  type FontFamily,
+  type TextLayout,
+  type TextObject,
+  type UnicodeFontKey
+} from '@core'
 import { UNICODE_CSS_FAMILIES } from '@renderer/fonts/fonts'
 
 type TextProps = Pick<TextObject, 'text' | 'font' | 'bold' | 'italic' | 'fontSize' | 'lineHeight' | 'width' | 'align'>
@@ -10,12 +21,31 @@ const FALLBACK_STACKS: Record<FontFamily, string> = {
   mono: '"Courier New", Courier, "Liberation Mono", monospace'
 }
 
-export function fontStack(font: FontFamily, unicode: boolean): string {
+/** CSS family stack; pass the layout's fontKey so fallback (system) fonts are used as on export. */
+export function fontStack(font: FontFamily, unicode: boolean, fontKey?: UnicodeFontKey): string {
   try {
-    return cssFontFamily(font, unicode)
+    return cssFontFamily(font, unicode, fontKey)
   } catch {
     return unicode ? `"${UNICODE_CSS_FAMILIES[font]}", ${FALLBACK_STACKS[font]}` : FALLBACK_STACKS[font]
   }
+}
+
+/** CSS family stack for a text drawn with the font the engine picks for it. */
+export function textFontStack(text: string, style: { font: FontFamily; bold?: boolean; italic?: boolean }): string {
+  try {
+    const { font } = prepareText(text, { font: style.font, bold: !!style.bold, italic: !!style.italic })
+    return fontStack(style.font, font.unicode, font.unicode ? font.fontKey : undefined)
+  } catch {
+    return fontStack(style.font, isUnicodeText(text))
+  }
+}
+
+/**
+ * Fallback fonts are declared as one face for every weight and have no italic: never let the
+ * browser fake bold/italic, since the export draws the face as is.
+ */
+export function usesFallbackFont(fontKey: UnicodeFontKey | undefined): boolean {
+  return fallbackFontId(fontKey) !== undefined
 }
 
 export function isUnicodeText(text: string): boolean {

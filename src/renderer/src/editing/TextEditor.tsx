@@ -1,10 +1,11 @@
 /** Inline textarea for editing a text object in place (styled to match the rendered text). */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { removeObject, type TextObject } from '@core'
+import { useFallbackFonts } from '@renderer/fonts/systemFonts'
 import { useEditor } from '@renderer/state/store'
 import { useEditing } from './editingState'
 import { findObject, updateObjectFitted } from './objects'
-import { fontStack, safeLayout, safeMeasure } from './textLayout'
+import { fontStack, safeLayout, safeMeasure, usesFallbackFont } from './textLayout'
 
 export function textCoalesceKey(id: string): string {
   return `text:${id}`
@@ -38,10 +39,11 @@ export function grownWidth(obj: TextObject, text: string, maxWidth: number): num
 export function TextEditor({ obj, scale, maxWidth = Infinity }: { obj: TextObject; scale: number; maxWidth?: number }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [minHeight, setMinHeight] = useState(0)
+  const fontsVersion = useFallbackFonts((s) => s.version)
   const layout = useMemo(
     () => safeLayout(obj),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [obj.text, obj.font, obj.bold, obj.italic, obj.fontSize, obj.lineHeight, obj.width, obj.align]
+    [obj.text, obj.font, obj.bold, obj.italic, obj.fontSize, obj.lineHeight, obj.width, obj.align, fontsVersion]
   )
 
   useEffect(() => {
@@ -61,7 +63,7 @@ export function TextEditor({ obj, scale, maxWidth = Infinity }: { obj: TextObjec
     const needed = el.scrollHeight
     el.style.height = prev
     setMinHeight(needed)
-  }, [obj.text, obj.width, obj.fontSize, obj.lineHeight, obj.font, scale])
+  }, [obj.text, obj.width, obj.fontSize, obj.lineHeight, obj.font, scale, fontsVersion])
 
   const height = Math.max(obj.height * scale, layout.height * scale, minHeight)
 
@@ -82,7 +84,8 @@ export function TextEditor({ obj, scale, maxWidth = Infinity }: { obj: TextObjec
         height,
         transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
         transformOrigin: `${(obj.width * scale) / 2}px ${(obj.height * scale) / 2}px`,
-        fontFamily: fontStack(obj.font, layout.unicode),
+        fontFamily: fontStack(obj.font, layout.unicode, layout.fontKey),
+        fontSynthesis: usesFallbackFont(layout.fontKey) ? 'none' : undefined,
         fontSize: obj.fontSize * scale,
         lineHeight: `${obj.fontSize * obj.lineHeight * scale}px`,
         fontWeight: obj.bold ? 700 : 400,

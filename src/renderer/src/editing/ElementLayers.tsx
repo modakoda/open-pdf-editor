@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { StickyNote } from 'lucide-react'
 import { NOTE_ICON_SIZE, type AnnotationInfo, type ContentItem, type EditorDocument, type PageEntry } from '@core'
+import { useFallbackFonts } from '@renderer/fonts/systemFonts'
 import { useEditor, type ElementRef } from '@renderer/state/store'
 import { apply as applyMatrix, invert, matrixAngle, multiply, placedRect, verticalScale, type RotRect } from './elementGeometry'
 import { CONTENT_KIND_LABELS, editContent, effectiveTransform, isContentDeleted, refKey, type ElementChange } from './elements'
 import { ensureElementPreview } from './previews'
-import { fontStack, isUnicodeText, measureContentText } from './textLayout'
+import { measureContentText, textFontStack } from './textLayout'
 
 /** Minimum on-screen size (px) of a hit target, so thin lines can be picked. */
 const MIN_HIT_PX = 6
@@ -179,6 +180,8 @@ export function ContentTextEditor({
   const edit = doc.contentEdits?.[page.id]?.find((e) => e.itemId === item.id)
   const initial = edit?.text ?? item.text ?? ''
   const [value, setValue] = useState(initial)
+  // Re-render with the fallback font once it is loaded for the typed text.
+  useFallbackFonts((s) => s.version)
   const ref = useRef<HTMLTextAreaElement>(null)
   const done = useRef(false)
 
@@ -230,7 +233,7 @@ export function ContentTextEditor({
         height: fs * 1.2 * scale,
         fontSize: fs * scale,
         lineHeight: `${fs * 1.2 * scale}px`,
-        fontFamily: fontStack(item.fontFamily ?? 'sans', isUnicodeText(value)),
+        fontFamily: textFontStack(value, { font: item.fontFamily ?? 'sans', bold: item.bold, italic: item.italic }),
         fontWeight: item.bold ? 700 : 400,
         fontStyle: item.italic ? 'italic' : 'normal',
         color,

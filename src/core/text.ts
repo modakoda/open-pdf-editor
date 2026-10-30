@@ -5,8 +5,12 @@
  * Fonts: text that can be encoded in WinAnsi uses the standard PDF fonts
  * (Helvetica / Times / Courier + bold/italic variants, no embedding). Text with characters
  * outside WinAnsi (e.g. "ąčęėįšųūž", Greek, Cyrillic) uses the embedded Noto fonts that the
- * host registers via registerFonts(). If a needed font is not registered, unsupported
- * characters are replaced with "?".
+ * host registers via registerFonts(). Text those cannot draw (CJK, Thai, Devanagari…) uses
+ * the fallback chain: fonts the host registers via registerFallbackFonts() (system fonts),
+ * picking one font that contains every character, preferring the right CJK language, family
+ * and weight. Each text is drawn with a single font. Characters no registered font contains,
+ * and right-to-left scripts (not supported yet), are replaced with "?" and reported in
+ * PreparedText.missing so the host can tell the user.
  *
  * Widths are the sum of glyph advance widths without kerning, which is exactly how the
  * exported PDF positions glyphs (Tj without adjustments). Overlays rendering with CSS
@@ -21,18 +25,52 @@
 import fontkit, { type Font as FkFont } from '@cantoo/fontkit'
 import { StandardFontEmbedder, StandardFonts } from '@cantoo/pdf-lib'
 import type { FontFamily } from './model'
+import { hanLanguageFor, isRtlCodePoint, splitAtCjkBreaks, type HanLanguage } from './scripts'
 import { isWinAnsiCodePoint } from './winansi'
+
+export * from './scripts'
+export * from './fontFiles'
 
 export type FontStyleKey = `${FontFamily}-${'regular' | 'bold' | 'italic' | 'bolditalic'}`
 
 /** TrueType font bytes for the Unicode fallback fonts (resources/fonts/*.ttf). */
 export type FontAssets = Partial<Record<FontStyleKey, Uint8Array>>
 
+/** Key of an embeddable Unicode font: a bundled face or a registered fallback font. */
+export type UnicodeFontKey = FontStyleKey | `fallback:${string}`
+
+/** A font for text the bundled fonts cannot draw (typically a system CJK font). */
+export interface FallbackFont {
+  /** Unique id; registering the same id again replaces the font. Letters, digits, "-", "_". */
+  id: string
+  /** TrueType/OpenType font or collection (.ttc/.otc) bytes. */
+  bytes: Uint8Array
+  /** Face to use in a collection. Default: the first face. */
+  postscriptName?: string
+  /** Generic family it stands in for (default 'sans'). */
+  family?: FontFamily
+  bold?: boolean
+  /** CJK fonts: the language its Han glyphs are designed for. */
+  language?: HanLanguage
+}
+
+interface FallbackEntry {
+  asset: FallbackFont
+  key: `fallback:${string}`
+  /** Parsed face (undefined = not parsed yet, null = unusable). */
+  font?: FkFont | null
+  /** PostScript name of the face when the bytes are a collection (pdf-lib needs it). */
+  collectionFace?: string
+}
 
 const registry: FontAssets = {}
 const parsedFonts = new Map<FontStyleKey, FkFont | null>()
+const fallbacks: FallbackEntry[] = []
+const choiceCache = new Map<string, FontChoice>()
 const widthCaches = new Map<string, Map<string, number>>()
 const WIDTH_CACHE_LIMIT = 4000
+const CHOICE_CACHE_LIMIT = 2000
+let preferredHanLanguage: HanLanguage = 'zh-Hans'
 
 /** Register Unicode fallback fonts. Call once at startup (renderer) or in test setup. */
 export function registerFonts(assets: FontAssets): void {
@@ -42,19 +80,69 @@ export function registerFonts(assets: FontAssets): void {
     parsedFonts.delete(key)
     widthCaches.delete(`u:${key}`)
   }
+  choiceCache.clear()
 }
 
 export function getRegisteredFonts(): FontAssets {
   return { ...registry }
 }
 
-/** Remove all registered fonts (mainly for tests). */
+/**
+ * Add fonts to the fallback chain (after the bundled fonts, in registration order, which is
+ * the tie-breaker between equally suitable fonts). Fonts are parsed lazily on first use.
+ */
+export function registerFallbackFonts(fonts: FallbackFont[]): void {
+  for (const asset of fonts) {
+    if (!asset?.bytes || !/^[\w-]+$/.test(asset.id)) throw new TypeError(`Invalid fallback font id: ${asset?.id}`)
+    const key = fallbackFontKey(asset.id)
+    const entry: FallbackEntry = { asset, key }
+    const i = fallbacks.findIndex((f) => f.key === key)
+    if (i >= 0) fallbacks[i] = entry
+    else fallbacks.push(entry)
+    widthCaches.delete(`u:${key}`)
+  }
+  choiceCache.clear()
+}
+
+/** Registered fallback fonts (without their bytes), in chain order. */
+export function getFallbackFonts(): Omit<FallbackFont, 'bytes'>[] {
+  return fallbacks.map(({ asset: { bytes: _bytes, ...meta } }) => meta)
+}
+
+export function fallbackFontKey(id: string): `fallback:${string}` {
+  return `fallback:${id}`
+}
+
+/** Fallback font id of a font key, or undefined for bundled fonts. */
+export function fallbackFontId(key: UnicodeFontKey | undefined): string | undefined {
+  return key?.startsWith('fallback:') ? key.slice('fallback:'.length) : undefined
+}
+
+/** CSS font-family name under which the host declares a fallback font for the overlay. */
+export function fallbackCssFamily(id: string): string {
+  return `OPE Fallback ${id}`
+}
+
+/** Han glyph variant for CJK text without kana or Hangul (e.g. from the UI locale). */
+export function setPreferredHanLanguage(language: HanLanguage): void {
+  if (language === preferredHanLanguage) return
+  preferredHanLanguage = language
+  choiceCache.clear()
+}
+
+export function getPreferredHanLanguage(): HanLanguage {
+  return preferredHanLanguage
+}
+
+/** Remove all registered fonts, bundled and fallback (mainly for tests). */
 export function clearRegisteredFonts(): void {
   for (const key of Object.keys(registry) as FontStyleKey[]) {
     delete registry[key]
     widthCaches.delete(`u:${key}`)
   }
+  for (const f of fallbacks.splice(0)) widthCaches.delete(`u:${f.key}`)
   parsedFonts.clear()
+  choiceCache.clear()
 }
 
 const isLayoutControl = (cp: number) => cp === 0x0a || cp === 0x0d || cp === 0x09
@@ -101,6 +189,10 @@ export interface TextLayout {
   maxLineWidth: number
   /** Whether the embedded Unicode font is used (true) or a standard PDF font (false). */
   unicode: boolean
+  /** The Unicode font used (bundled face or fallback font), for the overlay's CSS family. */
+  fontKey?: UnicodeFontKey
+  /** Characters drawn as "?" (see PreparedText.missing). */
+  missing?: string[]
 }
 
 // ---------------------------------------------------------------------------------------
@@ -177,44 +269,171 @@ export function resolveUnicodeFontKey(font: FontFamily, bold: boolean, italic: b
   return undefined
 }
 
+function fallbackFace(entry: FallbackEntry): FkFont | null {
+  if (entry.font !== undefined) return entry.font
+  let font: FkFont | null = null
+  try {
+    const created = fontkit.create(entry.asset.bytes)
+    if ('fonts' in created) {
+      const faces = created.fonts
+      font = faces.find((f) => f.postscriptName === entry.asset.postscriptName) ?? faces[0] ?? null
+      entry.collectionFace = font?.postscriptName ?? undefined
+    } else {
+      font = created
+    }
+  } catch {
+    font = null
+  }
+  entry.font = font
+  return font
+}
+
+function fallbackByKey(key: string): FallbackEntry | undefined {
+  return fallbacks.find((f) => f.key === key)
+}
+
+function unicodeFont(key: UnicodeFontKey): FkFont | null {
+  const fallback = fallbackByKey(key)
+  return fallback ? fallbackFace(fallback) : parsedFont(key as FontStyleKey)
+}
+
 /** How a piece of text is going to be drawn. */
 export type ResolvedTextFont =
   | { unicode: false; standardFont: StandardFonts }
-  | { unicode: true; fontKey: FontStyleKey; fontBytes: Uint8Array }
+  | {
+      unicode: true
+      fontKey: UnicodeFontKey
+      fontBytes: Uint8Array
+      /** Face to embed when fontBytes is a font collection. */
+      postscriptName?: string
+    }
 
 export interface PreparedText {
   /** Text with "\r\n"/"\r" normalized to "\n", tabs to spaces, undrawable characters → "?". */
   text: string
   font: ResolvedTextFont
+  /**
+   * Characters that were replaced with "?" (unique, in order): no registered font contains
+   * them, or they belong to a right-to-left script.
+   */
+  missing: string[]
+  /** Some replaced characters are right-to-left (Hebrew, Arabic…), which is not supported yet. */
+  rtl: boolean
+}
+
+type TextStyleRef = { font: FontFamily; bold: boolean; italic: boolean }
+
+interface FontChoice {
+  key: UnicodeFontKey
+  font: FkFont
+}
+
+/** Distinct drawable code points of `text` (no line breaks, controls or RTL characters). */
+function neededCodePoints(text: string): number[] {
+  const set = new Set<number>()
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!
+    if (cp >= 0x20 && !isRtlCodePoint(cp)) set.add(cp)
+  }
+  return [...set]
+}
+
+function countMissing(font: FkFont, cps: number[]): number {
+  let n = 0
+  for (const cp of cps) if (!font.hasGlyphForCodePoint(cp)) n++
+  return n
+}
+
+/**
+ * The Unicode font for `text`: the bundled face for the family/style when it contains every
+ * character; otherwise the fallback font that does, preferring the CJK language of the text,
+ * then the family, then the weight, then registration order. When no font contains every
+ * character, the one missing the fewest wins (the bundled face on ties).
+ */
+function chooseUnicodeFont(text: string, style: TextStyleRef): FontChoice | null {
+  const cacheKey = `${style.font}|${style.bold ? 1 : 0}|${style.italic ? 1 : 0}|${text}`
+  const cached = choiceCache.get(cacheKey)
+  if (cached) return cached
+  const cps = neededCodePoints(text)
+  const bundledKey = resolveUnicodeFontKey(style.font, style.bold, style.italic)
+  const bundled = bundledKey ? parsedFont(bundledKey) : null
+  let best: (FontChoice & { missing: number; rank: number }) | null = null
+  if (bundledKey && bundled) {
+    best = { key: bundledKey, font: bundled, missing: countMissing(bundled, cps), rank: -1 }
+  }
+  if (!best || best.missing > 0) {
+    const language = hanLanguageFor(text, preferredHanLanguage)
+    const family = style.font === 'mono' ? ['mono', 'sans'] : [style.font]
+    for (let order = 0; order < fallbacks.length; order++) {
+      const entry = fallbacks[order]
+      const font = fallbackFace(entry)
+      if (!font) continue
+      const missing = countMissing(font, cps)
+      const a = entry.asset
+      // Lower is better: language, family, weight, then registration order.
+      const rank =
+        (language && a.language !== language ? 8 : 0) +
+        (family.includes(a.family ?? 'sans') ? 0 : 4) +
+        (!!a.bold === style.bold ? 0 : 2) +
+        order / (fallbacks.length + 1)
+      if (!best || missing < best.missing || (missing === best.missing && best.rank >= 0 && rank < best.rank)) {
+        best = { key: entry.key, font, missing, rank }
+      }
+    }
+  }
+  if (!best) return null
+  const choice: FontChoice = { key: best.key, font: best.font }
+  if (choiceCache.size >= CHOICE_CACHE_LIMIT) choiceCache.clear()
+  choiceCache.set(cacheKey, choice)
+  return choice
 }
 
 /**
  * Decide the font for a text (standard vs embedded Unicode) and sanitize it so that every
  * character can be drawn with that font. Used identically by layout and export.
  */
-export function prepareText(text: string, style: { font: FontFamily; bold: boolean; italic: boolean }): PreparedText {
+export function prepareText(text: string, style: TextStyleRef): PreparedText {
   const normalized = text.replace(/\r\n?/g, '\n').replace(/\t/g, ' ')
   if (isWinAnsiEncodable(normalized)) {
-    return { text: normalized, font: { unicode: false, standardFont: standardFontFor(style.font, style.bold, style.italic) } }
+    return {
+      text: normalized,
+      font: { unicode: false, standardFont: standardFontFor(style.font, style.bold, style.italic) },
+      missing: [],
+      rtl: false
+    }
   }
-  const key = resolveUnicodeFontKey(style.font, style.bold, style.italic)
-  const fk = key ? parsedFont(key) : null
-  if (key && fk) {
+  const missing = new Set<string>()
+  let rtl = false
+  const sanitize = (drawable: (cp: number) => boolean) => {
     let out = ''
     for (const ch of normalized) {
       const cp = ch.codePointAt(0)!
       if (cp === 0x0a) out += ch
-      else if (cp < 0x20 || !fk.hasGlyphForCodePoint(cp)) out += '?'
-      else out += ch
+      else if (cp < 0x20) out += '?'
+      else if (isRtlCodePoint(cp) || !drawable(cp)) {
+        out += '?'
+        missing.add(ch)
+        if (isRtlCodePoint(cp)) rtl = true
+      } else out += ch
     }
-    return { text: out, font: { unicode: true, fontKey: key, fontBytes: registry[key]! } }
+    return out
   }
-  let out = ''
-  for (const ch of normalized) {
-    const cp = ch.codePointAt(0)!
-    out += cp === 0x0a || isWinAnsiCodePoint(cp) ? ch : '?'
+  const choice = chooseUnicodeFont(normalized, style)
+  if (choice) {
+    const out = sanitize((cp) => choice.font.hasGlyphForCodePoint(cp))
+    const fallback = fallbackByKey(choice.key)
+    const font: ResolvedTextFont = fallback
+      ? { unicode: true, fontKey: choice.key, fontBytes: fallback.asset.bytes, postscriptName: fallback.collectionFace }
+      : { unicode: true, fontKey: choice.key, fontBytes: registry[choice.key as FontStyleKey]! }
+    return { text: out, font, missing: [...missing], rtl }
   }
-  return { text: out, font: { unicode: false, standardFont: standardFontFor(style.font, style.bold, style.italic) } }
+  const out = sanitize(isWinAnsiCodePoint)
+  return {
+    text: out,
+    font: { unicode: false, standardFont: standardFontFor(style.font, style.bold, style.italic) },
+    missing: [...missing],
+    rtl
+  }
 }
 
 const standardEmbedders = new Map<StandardFonts, StandardFontEmbedder>()
@@ -244,7 +463,7 @@ function unitWidth(text: string, font: ResolvedTextFont): number {
   if (cached !== undefined) return cached
   let width = 0
   if (font.unicode) {
-    const fk = parsedFont(font.fontKey)!
+    const fk = unicodeFont(font.fontKey)!
     const { glyphs } = fk.layout(text)
     let sum = 0
     for (const g of glyphs) sum += g.advanceWidth
@@ -269,7 +488,7 @@ function unitWidth(text: string, font: ResolvedTextFont): number {
 /** Ascender / descender (positive, below baseline) of the font at size 1. */
 export function fontMetrics(font: ResolvedTextFont): { ascent: number; descent: number } {
   if (font.unicode) {
-    const fk = parsedFont(font.fontKey)!
+    const fk = unicodeFont(font.fontKey)!
     return { ascent: fk.ascent / fk.unitsPerEm, descent: Math.abs(fk.descent) / fk.unitsPerEm }
   }
   const f = standardEmbedder(font.standardFont).font
@@ -339,18 +558,23 @@ export function layoutText(input: TextLayoutInput): TextLayout {
       }
       return chunk
     }
+    // Break opportunities: at spaces (the space is dropped at a break) and around CJK
+    // characters (splitAtCjkBreaks; nothing is dropped there).
     let line: string | null = null
     for (const word of paragraph.split(' ')) {
-      if (line === null) {
-        line = startLine(word)
-        continue
-      }
-      const candidate: string = `${line} ${word}`
-      if (fits(candidate)) {
-        line = candidate
-      } else {
-        lines.push(line)
-        line = startLine(word)
+      const pieces = splitAtCjkBreaks(word)
+      for (let i = 0; i < pieces.length; i++) {
+        if (line === null) {
+          line = startLine(pieces[i])
+          continue
+        }
+        const candidate: string = `${line}${i === 0 ? ' ' : ''}${pieces[i]}`
+        if (fits(candidate)) {
+          line = candidate
+        } else {
+          lines.push(line)
+          line = startLine(pieces[i])
+        }
       }
     }
     lines.push(line ?? '')
@@ -369,12 +593,19 @@ export function layoutText(input: TextLayoutInput): TextLayout {
     }),
     height: lines.length * L,
     maxLineWidth,
-    unicode: font.unicode
+    unicode: font.unicode,
+    ...(font.unicode ? { fontKey: font.fontKey } : {}),
+    ...(prepared.missing.length ? { missing: prepared.missing } : {})
   }
 }
 
-/** CSS font-family stack for the overlay that approximates the font used on export. */
-export function cssFontFamily(font: FontFamily, unicode: boolean): string {
+/**
+ * CSS font-family stack for the overlay that approximates the font used on export. Pass the
+ * layout's fontKey so that text drawn with a fallback font uses that font's declared family.
+ */
+export function cssFontFamily(font: FontFamily, unicode: boolean, fontKey?: UnicodeFontKey): string {
+  const fallbackId = unicode ? fallbackFontId(fontKey) : undefined
+  if (fallbackId) return `'${fallbackCssFamily(fallbackId)}', ${cssFontFamily(font, true)}`
   if (unicode) {
     switch (font) {
       case 'serif':

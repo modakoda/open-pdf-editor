@@ -2,7 +2,8 @@
  * IPC handlers implementing DesktopApi (src/shared/ipc.ts). Every handler checks that the
  * message comes from the main frame of one of our windows showing the app, validates its
  * arguments, and only touches paths the user granted to that window (dialogs, OS open events,
- * command line, drag & drop) or files from the recent list.
+ * command line, drag & drop) or files from the recent list. Font files are read only from the
+ * system font catalog (systemFonts.ts), by id.
  */
 import { dialog, ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { existsSync } from 'node:fs'
@@ -25,6 +26,7 @@ import { dispatchMenuAction } from './menu'
 import { openPath } from './open'
 import { isAppUrl, PRODUCT_NAME } from './paths'
 import { recentFiles } from './recent'
+import { systemFonts } from './systemFonts'
 import { windows, type WindowContext } from './windows'
 
 const PDF_FILTERS: Electron.FileFilter[] = [
@@ -298,6 +300,17 @@ export function registerIpcHandlers(): void {
     } catch (err) {
       console.error('showItemInFolder:', err)
     }
+  })
+
+  // Fallback fonts (CJK…): only fonts the main process found in font folders, by catalog id.
+  ipcMain.handle(IPC.listSystemFonts, (event) => {
+    senderContext(event)
+    return systemFonts.list()
+  })
+
+  ipcMain.handle(IPC.readSystemFont, (event, id: unknown) => {
+    senderContext(event)
+    return systemFonts.read(id)
   })
 
   // Internal (preload only): a real file was dropped / picked in the page and its path was

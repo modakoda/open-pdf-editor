@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { deletePages, exportDocument, parsePageRanges } from '@core'
 import { applyEdit, errorMessage, notifyError, notifyInfo } from '@renderer/actions/util'
 import { ensurePdfName } from '@renderer/actions/fileActions'
+import { fontsReadyFor } from '@renderer/fonts/systemFonts'
 import { platform } from '@renderer/platform'
 import { baseFileName, currentPageIndex } from '@renderer/state/selectors'
 import { useEditor } from '@renderer/state/store'
@@ -37,6 +38,7 @@ export function ExtractDialog({ initialRange, onClose }: { initialRange?: string
     const pageIds = parsed.indices.map((i) => doc.pages[i].id)
     setBusy(true)
     try {
+      await fontsReadyFor(doc)
       const bytes = await exportDocument(doc, { pageIds })
       const name = ensurePdfName(`${baseFileName(fileName)}-pages-${range.replace(/\s+/g, '').replace(/,/g, '_')}`)
       const saved = await platform.saveFileDialog({ defaultPath: name, bytes })

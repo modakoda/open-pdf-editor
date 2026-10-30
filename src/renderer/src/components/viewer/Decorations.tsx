@@ -4,15 +4,13 @@
  * drawWatermark / drawPageNumber in src/core/exportDraw.ts.
  */
 import type { CSSProperties } from 'react'
-import { cssFontFamily, isWinAnsiEncodable } from '@core'
+import { textFontStack } from '@renderer/editing/textLayout'
+import { useFallbackFonts } from '@renderer/fonts/systemFonts'
 import { useEditor } from '@renderer/state/store'
 
-function fontFor(text: string): string {
-  try {
-    return cssFontFamily('sans', !isWinAnsiEncodable(text))
-  } catch {
-    return 'Helvetica, Arial, sans-serif'
-  }
+/** Same font choice as the exporter (watermarks are bold sans, page numbers regular sans). */
+function fontFor(text: string, bold = false): string {
+  return textFontStack(text, { font: 'sans', bold })
 }
 
 export function formatPageNumberText(format: string, n: number, total: number): string {
@@ -23,6 +21,8 @@ export function Decorations({ index, scale }: { index: number; scale: number }) 
   const watermark = useEditor((s) => s.doc?.settings.watermark ?? null)
   const pageNumbers = useEditor((s) => s.doc?.settings.pageNumbers ?? null)
   const total = useEditor((s) => s.doc?.pages.length ?? 0)
+  // Re-render when a fallback font for the texts becomes available.
+  useFallbackFonts((s) => s.version)
   if (!watermark?.text.trim() && !pageNumbers) return null
 
   let numberEl = null
@@ -57,7 +57,7 @@ export function Decorations({ index, scale }: { index: number; scale: number }) 
           className="decoration-watermark"
           data-testid="watermark-preview"
           style={{
-            fontFamily: fontFor(watermark.text),
+            fontFamily: fontFor(watermark.text, true),
             fontSize: (watermark.fontSize > 0 ? watermark.fontSize : 48) * scale,
             color: watermark.color,
             opacity: Number.isFinite(watermark.opacity) ? watermark.opacity : 0.3,

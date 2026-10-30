@@ -77,6 +77,8 @@ export const DESKTOP_API_METHODS: (keyof DesktopApi)[] = [
   'cancelClose',
   'newDocumentWindow',
   'showItemInFolder',
+  'listSystemFonts',
+  'readSystemFont',
   'onMenuAction',
   'onOpenFile',
   'onSaveBeforeClose'

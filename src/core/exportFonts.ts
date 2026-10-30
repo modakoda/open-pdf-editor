@@ -27,7 +27,7 @@ export class EmbedCache {
     if (!font) {
       if (resolved.unicode) {
         this.ensureFontkit(doc)
-        font = doc.embedFont(resolved.fontBytes, { subset: true })
+        font = doc.embedFont(resolved.fontBytes, { subset: true, postscriptName: resolved.postscriptName })
       } else {
         font = doc.embedFont(resolved.standardFont)
       }
@@ -36,7 +36,7 @@ export class EmbedCache {
     return font
   }
 
-  /** Font able to draw `text` (sans family): Helvetica for WinAnsi text, else Noto Sans. */
+  /** Font able to draw `text` (sans family): Helvetica for WinAnsi text, else a Unicode font (bundled or fallback). */
   fontForText(doc: PDFDocument, text: string): Promise<PDFFont> {
     return this.font(doc, prepareText(text, { font: 'sans', bold: false, italic: false }).font)
   }

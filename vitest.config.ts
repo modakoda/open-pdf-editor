@@ -23,6 +23,14 @@ export default defineConfig({
       },
       {
         resolve: { alias },
+        test: {
+          name: 'main',
+          environment: 'node',
+          include: ['tests/main/**/*.test.ts']
+        }
+      },
+      {
+        resolve: { alias },
         plugins: [react()],
         test: {
           name: 'renderer',

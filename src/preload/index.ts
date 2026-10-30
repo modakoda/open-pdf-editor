@@ -100,6 +100,8 @@ const api: DesktopApi = {
   cancelClose: () => ipcRenderer.send(IPC.cancelClose),
   newDocumentWindow: () => ipcRenderer.invoke(IPC.newDocumentWindow),
   showItemInFolder: (path) => ipcRenderer.send(IPC.showItemInFolder, path),
+  listSystemFonts: () => ipcRenderer.invoke(IPC.listSystemFonts),
+  readSystemFont: (id) => ipcRenderer.invoke(IPC.readSystemFont, id),
   onMenuAction: (callback) => subscribeMenuAction(callback),
   onOpenFile: (callback) => subscribeOpenFile(callback),
   onSaveBeforeClose: (callback) => subscribeSaveBeforeClose(() => callback())

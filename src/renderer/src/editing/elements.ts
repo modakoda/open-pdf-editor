@@ -277,7 +277,8 @@ export function resetElement(doc: EditorDocument, ref: ElementRef): EditorDocume
         transform: undefined,
         text: undefined,
         color: undefined,
-        fontSize: undefined
+        fontSize: undefined,
+        z: undefined
       })
       // A container moved back takes its edited items back too.
       if (!own) return next
@@ -310,6 +311,85 @@ export function hasEdit(doc: EditorDocument, ref: ElementRef): boolean {
     case 'field':
       return !!doc.fieldEdits?.[ref.sourceId]?.[ref.fieldName]
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stacking order of existing content
+
+export type ZOrderCommand = 'front' | 'forward' | 'backward' | 'back'
+
+/** The form XObject item a content item is drawn by ("x1" for "x1/t3"; '' for page level). */
+export function contentContainer(itemId: string): string {
+  const parts = itemId.split('/')
+  for (let k = parts.length - 1; k >= 1; k--) if (/^x\d+$/.test(parts[k - 1])) return parts.slice(0, k).join('/')
+  return ''
+}
+
+/**
+ * The items an item can be re-ordered among (same container, not deleted) in their current
+ * stacking order, with their ContentEdit.z sort keys (item i of `items` has key i by default).
+ */
+function stackingOrder(doc: EditorDocument, pageId: string, items: ContentItem[], itemId: string) {
+  const container = contentContainer(itemId)
+  return items
+    .map((item, i) => ({ item, i, key: getContentEdit(doc, pageId, item.id)?.z ?? i }))
+    .filter((e) => contentContainer(e.item.id) === container && !isContentDeleted(doc, pageId, e.item.id))
+    .sort((a, b) => a.key - b.key || a.i - b.i)
+}
+
+function placedBounds(doc: EditorDocument, pageId: string, item: ContentItem): Box {
+  const transform = effectiveTransform(doc, pageId, item.id)
+  return boundsOfPoints(placedQuad(item, transform, getContentEdit(doc, pageId, item.id), measureContentText))
+}
+
+const overlaps = (a: Box, b: Box) =>
+  Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1e-6 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1e-6
+
+/** The new sort key for a z-order command; undefined when it changes nothing. */
+function zFor(doc: EditorDocument, pageId: string, items: ContentItem[], itemId: string, cmd: ZOrderCommand): number | undefined {
+  const order = stackingOrder(doc, pageId, items, itemId)
+  const at = order.findIndex((e) => e.item.id === itemId)
+  if (at < 0 || order[at].item.readOnly) return undefined
+  const last = order.length - 1
+  const between = (lo: number, hi: number) => {
+    const z = (lo + hi) / 2
+    return z > lo && z < hi ? z : undefined
+  }
+  switch (cmd) {
+    case 'front':
+      return at < last ? order[last].key + 1 : undefined
+    case 'back':
+      return at > 0 ? order[0].key - 1 : undefined
+    case 'forward': {
+      // Above the next item it overlaps (moving past others changes nothing visible).
+      const own = placedBounds(doc, pageId, order[at].item)
+      const j = order.findIndex((e, j) => j > at && overlaps(own, placedBounds(doc, pageId, e.item)))
+      if (j < 0) return undefined
+      return j < last ? between(order[j].key, order[j + 1].key) : order[j].key + 1
+    }
+    case 'backward': {
+      const own = placedBounds(doc, pageId, order[at].item)
+      let j = at - 1
+      while (j >= 0 && !overlaps(own, placedBounds(doc, pageId, order[j].item))) j--
+      if (j < 0) return undefined
+      return j > 0 ? between(order[j - 1].key, order[j].key) : order[j].key - 1
+    }
+  }
+}
+
+/** Whether a z-order command would change the stacking order of an existing content item. */
+export function canReorderContent(doc: EditorDocument, pageId: string, items: ContentItem[], itemId: string, cmd: ZOrderCommand): boolean {
+  return zFor(doc, pageId, items, itemId, cmd) !== undefined
+}
+
+/**
+ * Bring an existing content item to the front / forward (above the next item it overlaps),
+ * or send it backward / to the back, among the items of its page or form XObject (`items`:
+ * the page's content items). Returns `doc` when nothing changes.
+ */
+export function reorderContent(doc: EditorDocument, pageId: string, items: ContentItem[], itemId: string, cmd: ZOrderCommand): EditorDocument {
+  const z = zFor(doc, pageId, items, itemId, cmd)
+  return z === undefined ? doc : editContent(doc, pageId, itemId, { z })
 }
 
 export const CONTENT_KIND_LABELS: Record<ContentItem['kind'], string> = {

@@ -11,7 +11,8 @@ const alias = {
 export default defineConfig({
   main: {
     resolve: { alias },
-    build: { outDir: 'out/main' }
+    // Packaged apps ship no node_modules: bundle the main process's runtime dependencies.
+    build: { outDir: 'out/main', externalizeDeps: { exclude: ['node-forge'] } }
   },
   preload: {
     resolve: { alias },

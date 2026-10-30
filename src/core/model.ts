@@ -498,6 +498,22 @@ export interface EditorDocument {
   annotationEdits?: Record<string, AnnotationEdit[]>
   /** Structural edits to existing form fields: sourceId → original field name → edit. */
   fieldEdits?: Record<string, Record<string, FieldEdit>>
+  /** Areas marked for redaction; everything under them is removed on export (see redaction.ts). */
+  redactions?: RedactionArea[]
+}
+
+/**
+ * An area marked for redaction, in page space. On export, text, paths, image pixels, form
+ * XObject content, annotations and form widgets under it are removed from the file, then the
+ * area is filled.
+ */
+export interface RedactionArea extends Box {
+  id: string
+  pageId: string
+  /** Fill drawn over the area after removal; null = leave it empty. Default black. */
+  fillColor?: Color | null
+  /** Text drawn centered in the box (e.g. "REDACTED"). */
+  overlayText?: string
 }
 
 /** Standard page sizes in points. */

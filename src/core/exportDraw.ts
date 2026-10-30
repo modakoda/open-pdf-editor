@@ -319,7 +319,7 @@ export async function drawObject(t: DrawTarget, obj: EditObject, cache: EmbedCac
   }
 }
 
-async function drawObjectContent(t: DrawTarget, obj: EditObject, cache: EmbedCache): Promise<void> {
+export async function drawObjectContent(t: DrawTarget, obj: EditObject, cache: EmbedCache): Promise<void> {
   switch (obj.type) {
     case 'text':
       return drawText(t, obj, cache)

@@ -44,7 +44,8 @@ export function deletePages(doc: EditorDocument, pageIds: string[]): EditorDocum
     ...doc,
     pages: doc.pages.filter((p) => !ids.has(p.id)),
     objects: doc.objects.filter((o) => !ids.has(o.pageId)),
-    ...withoutPages(doc, ids)
+    ...withoutPages(doc, ids),
+    ...(doc.redactions ? { redactions: doc.redactions.filter((r) => !ids.has(r.pageId)) } : {})
   }
 }
 
@@ -108,6 +109,8 @@ export function duplicatePages(doc: EditorDocument, pageIds: string[]): EditorDo
   const newObjects: EditObject[] = []
   const contentEdits = doc.contentEdits ? { ...doc.contentEdits } : undefined
   const annotationEdits = doc.annotationEdits ? { ...doc.annotationEdits } : undefined
+  // A copy of a page shows the same content, so it is redacted the same way.
+  const redactions = doc.redactions ? [...doc.redactions] : undefined
   for (const p of doc.pages) {
     pages.push(p)
     if (!ids.has(p.id)) continue
@@ -119,13 +122,15 @@ export function duplicatePages(doc: EditorDocument, pageIds: string[]): EditorDo
     newObjects.push(...withUniqueFieldNames(doc, copies, newObjects))
     if (contentEdits?.[p.id]) contentEdits[copy.id] = contentEdits[p.id]
     if (annotationEdits?.[p.id]) annotationEdits[copy.id] = annotationEdits[p.id]
+    for (const r of doc.redactions ?? []) if (r.pageId === p.id) redactions!.push({ ...r, id: createId('redact'), pageId: copy.id })
   }
   return {
     ...doc,
     pages,
     objects: newObjects.length ? [...doc.objects, ...newObjects] : doc.objects,
     ...(contentEdits ? { contentEdits } : {}),
-    ...(annotationEdits ? { annotationEdits } : {})
+    ...(annotationEdits ? { annotationEdits } : {}),
+    ...(redactions ? { redactions } : {})
   }
 }
 

@@ -15,9 +15,11 @@ import {
   degrees,
   type PDFObject
 } from '@cantoo/pdf-lib'
-import { displayRotation } from './geometry'
-import type { ContentEdit, ContentItem, EditObject, EditorDocument, FieldObject, PageEntry, Rotation, SourceDocument } from './model'
+import { boundsOf, displayRotation, pdfToPage } from './geometry'
+import type { Box, ContentEdit, ContentItem, EditObject, EditorDocument, FieldObject, PageEntry, Point, Rotation, SourceDocument } from './model'
 import { applyContentEdits, listContentItems, stripMarkedContent, type ContentEditHelpers } from './content'
+import { listGlyphBoxes } from './content/redact'
+import { ResourceEditor, readPageContent } from './content/page'
 import { applyAnnotationEdits, removeMarkedAnnotations, tagAnnotations, untagAnnotations } from './annotations'
 import { applyFieldEdits, applyWidgetEditsToPage, createNewFields, removeRestoredFields } from './fieldEdits'
 import { clearPageObjects, writePageObjects } from './persist'
@@ -44,8 +46,10 @@ import {
 } from './security'
 import { fileEncryptionKey } from './pdfCrypto'
 import { encryptionFromSource } from './load'
+import { applyRedactions } from './redaction'
+import { sanitizeDocument } from './sanitize'
 
-export type ExportWarningCode = 'pdfa-claim-removed' | 'image-skipped'
+export type ExportWarningCode = 'pdfa-claim-removed' | 'image-skipped' | 'redaction-image-removed'
 
 export interface ExportWarning {
   code: ExportWarningCode
@@ -59,6 +63,11 @@ export interface ExportOptions {
   pageIds?: string[]
   /** Called for non-fatal problems the user may want to know about. */
   onWarning?: (warning: ExportWarning) => void
+  /**
+   * Also remove hidden information: metadata / XMP, attachments, JavaScript and other script
+   * actions, content of optional-content layers hidden by default (see sanitize.ts).
+   */
+  sanitize?: boolean
 }
 
 /** Value written to /Producer unless the user overrides it. */
@@ -566,6 +575,20 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     if (pageNumbers) await drawPageNumber(target, pageNumbers, i, plan.length, cache)
   }
 
+  // 8b. Redactions (after all drawing, so everything under an area is removed) and, when
+  //     sanitizing, the content of hidden layers.
+  const { burnedObjectIds } = await applyRedactions(
+    out,
+    plan.map((item) => ({ entry: item.entry, page: item.page! })),
+    doc,
+    objectsByPage,
+    cache,
+    {
+      sanitize: options?.sanitize,
+      onWarning: (_code, message) => warn({ code: 'redaction-image-removed', message })
+    }
+  )
+
   // 9. Keep the EditObjects editable after reopening (after all drawing: the data includes a
   //    fingerprint of the final page content).
   const lastModified = PDFString.fromDate(new Date())
@@ -573,12 +596,14 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
     const page = item.page!
     clearPageObjects(page)
     untagAnnotations(out.context, page)
-    const objects = objectsByPage.get(item.entry.id)
+    // Objects under a redaction area stay as plain (redacted) content.
+    const objects = objectsByPage.get(item.entry.id)?.filter((o) => !burnedObjectIds.has(o.id))
     if (objects?.length) writePageObjects(out, page, objects, lastModified)
   }
 
   // 10. Metadata, cleanup, encryption, save.
   applyMetadata(out, doc)
+  if (options?.sanitize) sanitizeDocument(out)
   const enc = doc.settings.encryption
   if (enc && (enc.userPassword || enc.ownerPassword || enc.permissions) && stripPdfAIdentification(out)) {
     warn({
@@ -686,6 +711,59 @@ export async function getContentItems(doc: EditorDocument, pageId: string): Prom
     items.catch(() => perSource!.delete(pageIndex))
   }
   return items
+}
+
+const glyphCache = new WeakMap<SourceDocument, Map<number, Promise<{ quad: Point[]; center: Point }[]>>>()
+
+/** Visible glyphs of a source page as redaction sees them (hit box quads in page space). */
+function pageGlyphs(source: SourceDocument, pageIndex: number): Promise<{ quad: Point[]; center: Point }[]> {
+  let perSource = glyphCache.get(source)
+  if (!perSource) {
+    perSource = new Map()
+    glyphCache.set(source, perSource)
+  }
+  let glyphs = perSource.get(pageIndex)
+  if (!glyphs) {
+    glyphs = parsedSource(source).then(async (pdf) => {
+      const page = pdf.getPage(pageIndex)
+      const box = visibleBox(page)
+      // A throwaway editor: listing never writes resources.
+      const res = new ResourceEditor(pdf.context, () => page.node.Resources(), () => {})
+      const list = await listGlyphBoxes(pdf.context, readPageContent(page), res, box)
+      return list
+        .filter((g) => g.unicode.trim())
+        .map((g) => {
+          const quad = g.quad.map((p) => pdfToPage(p, box))
+          const b = boundsOf(quad)
+          return { quad, center: { x: b.x + b.width / 2, y: b.y + b.height / 2 } }
+        })
+    })
+    perSource.set(pageIndex, glyphs)
+    glyphs.catch(() => perSource!.delete(pageIndex))
+  }
+  return glyphs
+}
+
+/**
+ * Tighten boxes found by text search (page space) to the glyphs they cover, using the glyph
+ * boxes redaction tests text with: each box becomes the bounds of the glyphs whose center lies
+ * inside it. Boxes without glyphs, and pages whose existing content was edited, stay as they are.
+ */
+export async function snapToGlyphs(doc: EditorDocument, pageId: string, boxes: Box[]): Promise<Box[]> {
+  const { source, pageIndex } = sourcePageOf(doc, pageId)
+  if (!source || doc.contentEdits?.[pageId]?.length) return boxes
+  let glyphs: { quad: Point[]; center: Point }[]
+  try {
+    glyphs = await pageGlyphs(source, pageIndex)
+  } catch {
+    return boxes
+  }
+  return boxes.map((box) => {
+    const inside = glyphs.filter(
+      (g) => g.center.x >= box.x && g.center.x <= box.x + box.width && g.center.y >= box.y && g.center.y <= box.y + box.height
+    )
+    return inside.length ? boundsOf(inside.flatMap((g) => g.quad)) : box
+  })
 }
 
 /** Copy one page into `dst` without following references to other pages (fast, small). */

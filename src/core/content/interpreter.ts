@@ -82,6 +82,8 @@ export interface GState {
   clips: ClipPath[]
   /** Bounds of the clipping region in page user space (null = unclipped). */
   clipRect: Rect | null
+  /** Clipped by glyphs (text render modes 4–7), which `clips` does not describe. */
+  textClip?: boolean
   text: TextState
   /** Changes whenever a non-text-state parameter changes (used to group text). */
   ver: number
@@ -175,6 +177,26 @@ export interface FinalState {
   pathOpen: boolean
 }
 
+/** An open marked-content section: its BDC/BMC operation and whether it began inside BT … ET. */
+export interface OpenMarked {
+  op: number
+  inText: boolean
+}
+
+/** Interpreter state after a page-level operation (see InterpretOptions.snapshots). */
+export interface Snapshot {
+  /** States saved by the open `q`s (outermost first) and the current state. */
+  stack: GState[]
+  gs: GState
+  inText: boolean
+  tm: Matrix
+  tlm: Matrix
+  marked: OpenMarked[]
+  /** Glyphs were shown with a clipping render mode (Tr 4–7) in the current text object. */
+  textClip: boolean
+  pathOpen: boolean
+}
+
 export interface Interpretation {
   ops: Op[]
   data: Uint8Array
@@ -184,6 +206,8 @@ export interface Interpretation {
   /** Page-level Q operations without a matching q. */
   unmatchedQ: number[]
   final: FinalState
+  /** State after each page-level painting operation (and ET), when requested. */
+  snapshots: Map<number, Snapshot>
 }
 
 export interface InterpretOptions {
@@ -193,6 +217,8 @@ export interface InterpretOptions {
   maxDepth?: number
   /** Graphics state at the start of the content (default: the page's initial state). */
   startGs?: GState
+  /** Record a Snapshot after each page-level painting operation (paths, text, XObjects…) and ET. */
+  snapshots?: boolean
 }
 
 interface Frame {
@@ -240,7 +266,12 @@ interface Marked {
   skip: boolean
   /** Property name of a visible `/OC /name BDC` section. */
   oc?: string
+  /** The BDC/BMC operation and whether it began inside a text object. */
+  open: OpenMarked
 }
+
+/** Operations after which Snapshots are recorded. */
+const SNAPSHOT_OPS = new Set(['Tj', 'TJ', "'", '"', 'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'n', 'Do', 'BI', 'sh', 'ET'])
 
 const SPACE_RE = /\s$/
 const START_SPACE_RE = /^\s/
@@ -434,6 +465,7 @@ export class Interpreter {
   readonly records: ItemRecord[] = []
   readonly shows = new Map<number, ShowInfo>()
   readonly unmatchedQ: number[] = []
+  readonly snapshots = new Map<number, Snapshot>()
   final: FinalState = { qDepth: 0, inText: false, marked: 0, pathOpen: false }
   private readonly toPage: Matrix
   private readonly cropRect: Rect
@@ -575,6 +607,7 @@ export class Interpreter {
     let gs = startGs
     const stack: GState[] = []
     let inText = false
+    let textClip = false
     let tm: Matrix = IDENTITY
     let tlm: Matrix = IDENTITY
     let path: Seg[] = []
@@ -583,6 +616,7 @@ export class Interpreter {
     let subStart: Point = { x: 0, y: 0 }
     let pendingClip: { evenOdd: boolean; op: number } | null = null
     const marked: Marked[] = []
+    const snapshots = frame.pageLevel && !!this.opts.snapshots
     const scopes: Scope[] = [{ prefix: frame.prefix, next: 0 }]
     let open: TextBuilder | null = null
     const fontCache = new Map<string, FontInfo>()
@@ -661,7 +695,7 @@ export class Interpreter {
         if (opeId !== undefined) {
           closeText()
           const skip = !!this.opts.skipMarked?.has(opeId)
-          marked.push({ scope: true, skip })
+          marked.push({ scope: true, skip, open: { op: i, inText } })
           if (skip) this.skipCount++
           scopes.push({ prefix: top.prefix + '@' + opeId + '/', next: 0 })
           continue
@@ -807,12 +841,14 @@ export class Interpreter {
         case 'BT':
           closeText()
           inText = true
+          textClip = false
           tm = IDENTITY
           tlm = IDENTITY
           break
         case 'ET':
           closeText()
           inText = false
+          if (textClip) setGs({ textClip: true })
           break
         case 'Tf': {
           const name = nameArg(op, op.args.length - 2) ?? nameArg(op, 0)
@@ -878,6 +914,7 @@ export class Interpreter {
             const s = op.args[op.args.length - 1]
             elements = s instanceof PdfStr ? [s] : []
           }
+          if (gs.text.tr >= 4) textClip = true
           const res = this.showText(frame, i, op.op, elements, gs, tm, open, idIndex, top.prefix)
           open = res.open
           tm = res.tm
@@ -1032,7 +1069,7 @@ export class Interpreter {
 
         // ---- marked content
         case 'BMC':
-          marked.push({ scope: false, skip: false })
+          marked.push({ scope: false, skip: false, open: { op: i, inText } })
           break
         case 'BDC': {
           if (nameArg(op, 0) === 'OC') {
@@ -1042,16 +1079,16 @@ export class Interpreter {
             const p = op.args[1]
             const props = p instanceof PdfName ? getDict(resources, 'Properties')?.get(PDFName.of(p.name)) : undefined
             if (p instanceof PdfName && this.ocHidden(props)) {
-              marked.push({ scope: false, skip: true })
+              marked.push({ scope: false, skip: true, open: { op: i, inText } })
               this.skipCount++
             } else {
               const name = p instanceof PdfName ? p.name : undefined
-              marked.push({ scope: false, skip: false, oc: name })
+              marked.push({ scope: false, skip: false, oc: name, open: { op: i, inText } })
               if (name) this.ocStack = [...this.ocStack, name]
             }
             break
           }
-          marked.push({ scope: false, skip: false })
+          marked.push({ scope: false, skip: false, open: { op: i, inText } })
           break
         }
         case 'EMC': {
@@ -1067,6 +1104,18 @@ export class Interpreter {
         }
         default:
           break
+      }
+      if (snapshots && SNAPSHOT_OPS.has(op.op)) {
+        this.snapshots.set(i, {
+          stack: [...stack],
+          gs,
+          inText,
+          tm,
+          tlm,
+          marked: marked.map((m) => m.open),
+          textClip,
+          pathOpen: path.length > 0 || pendingClip !== null
+        })
       }
     }
     closeText()
@@ -1448,5 +1497,5 @@ export function interpret(
   it.runPage(ops, resources)
   const byId = new Map<string, ItemRecord>()
   for (const r of it.records) if (!byId.has(r.id)) byId.set(r.id, r)
-  return { ops, data, records: it.records, byId, shows: it.shows, unmatchedQ: it.unmatchedQ, final: it.final }
+  return { ops, data, records: it.records, byId, shows: it.shows, unmatchedQ: it.unmatchedQ, final: it.final, snapshots: it.snapshots }
 }

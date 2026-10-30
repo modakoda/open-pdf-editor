@@ -50,6 +50,7 @@ import {
   widgetRefs
 } from './formFields'
 import type { PdfBox } from './geometry'
+import { hasSignedFields, verifyLoadedSignatures } from './signatures/verify'
 
 export interface LoadOptions {
   /** Password for encrypted files. Pass '' explicitly to try an empty password. */
@@ -313,6 +314,7 @@ export async function loadSource(bytes: Uint8Array, name: string, options?: Load
     formFields,
     pageInfo
   }
+  if (hasSignedFields(doc)) source.signatures = await verifyLoadedSignatures(doc, pages, bytes)
   if (opened.isEncrypted) {
     source.password = opened.password
     if (opened.passwordKind) source.passwordKind = opened.passwordKind

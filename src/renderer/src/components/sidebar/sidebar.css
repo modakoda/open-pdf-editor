@@ -33,6 +33,11 @@
   font-weight: 600;
   cursor: pointer;
 }
+.sidebar-tab-icon {
+  flex: none;
+  gap: 4px;
+  padding: 0 6px;
+}
 .sidebar-tab:hover {
   color: var(--fg);
   background: var(--bg-hover);

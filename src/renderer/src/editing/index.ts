@@ -15,3 +15,5 @@ export { useEditing } from './editingState'
  * "a.b") with effective fields of the primary source or FieldObjects.
  */
 export { validateFieldName, namesClash } from './fields'
+/** Signature pad (draw or type), also used for the image of a digital signature. */
+export { SignatureDialog } from './SignatureDialog'

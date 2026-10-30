@@ -4,6 +4,7 @@ import { Lock } from 'lucide-react'
 import { goToPageIndex } from '@renderer/actions/viewActions'
 import { currentPageIndex, selectionLabel } from '@renderer/state/selectors'
 import { useEditor } from '@renderer/state/store'
+import { SignatureBadge } from '../signatures/SignaturesPanel'
 import './statusbar.css'
 
 export function StatusBar() {
@@ -80,6 +81,7 @@ export function StatusBar() {
       </div>
       <div className="statusbar-section statusbar-right">
         {busy && <Busy text={busy} />}
+        <SignatureBadge />
         <span className="statusbar-file" title={fileName}>
           {encrypted && <Lock size={11} aria-label="Password protected" />}
           {fileName}

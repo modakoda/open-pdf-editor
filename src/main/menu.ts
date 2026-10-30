@@ -44,6 +44,7 @@ const DOCUMENT_ACTIONS: ReadonlySet<MenuAction> = new Set<MenuAction>([
   'watermark',
   'page-numbers',
   'security',
+  'sign',
   'find'
 ])
 
@@ -253,7 +254,8 @@ export function buildMenuTemplate(): MenuItemConstructorOptions[] {
       item('watermark', 'Watermark…'),
       item('page-numbers', 'Page Numbers…'),
       sep,
-      item('security', 'Security…')
+      item('security', 'Security…'),
+      item('sign', 'Sign Digitally…')
     ]
   }
 

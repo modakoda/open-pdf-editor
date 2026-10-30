@@ -44,8 +44,9 @@ import {
 } from './security'
 import { fileEncryptionKey } from './pdfCrypto'
 import { encryptionFromSource } from './load'
+import { removeSignatures } from './signatures/strip'
 
-export type ExportWarningCode = 'pdfa-claim-removed' | 'image-skipped'
+export type ExportWarningCode = 'pdfa-claim-removed' | 'image-skipped' | 'signatures-removed'
 
 export interface ExportWarning {
   code: ExportWarningCode
@@ -87,6 +88,7 @@ async function loadSourceForCopy(
   cache: EmbedCache
 ): Promise<{ src: PDFDocument; burns: Map<number, WidgetBurn[]> }> {
   const { doc: src } = await openPdfLib(source.bytes, source.password, { identify: false })
+  removeSignatures(src)
   const pages = src.getPages()
   const restored = new Set<string>()
   pages.forEach((page, i) => {
@@ -390,6 +392,10 @@ export async function exportDocument(doc: EditorDocument, options?: ExportOption
   const primary = doc.primarySourceId ? doc.sources[doc.primarySourceId] : undefined
   const opened = primary ? await openPdfLib(primary.bytes, primary.password, { identify: false }) : undefined
   const out = opened ? opened.doc : await PDFDocument.create({ updateMetadata: false })
+  // An exported file is rewritten, so signatures carried over would no longer be valid.
+  if (removeSignatures(out)) {
+    warn({ code: 'signatures-removed', message: 'The digital signatures were removed because the document was changed.' })
+  }
   const origPages = primary ? out.getPages() : []
   const pageIds = new Set(entries.map((e) => e.id))
   const fieldObjects = doc.objects.filter((o): o is FieldObject => o.type === 'field' && pageIds.has(o.pageId))

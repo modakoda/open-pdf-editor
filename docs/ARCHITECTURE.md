@@ -44,6 +44,22 @@ so wrapping on screen matches the saved file. The renderer registers the font by
 (`src/renderer/src/fonts/fonts.ts`) and declares them for CSS as `OPE Noto Sans`,
 `OPE Noto Serif`, `OPE Noto Sans Mono` (`fonts.css`).
 
+### Digital signatures
+
+`src/core/signatures/`: `signPdf()` appends an incremental update to finished PDF bytes (the
+signature field and widget appearance, the signature dictionary with /ByteRange and a /Contents
+placeholder sized for the CMS, and an xref section of the same kind as the file's last one), then
+hashes the byte ranges and embeds a CMS SignedData (`cms.ts`; CAdES signed attributes, SHA-256,
+RSA or ECDSA). `verify.ts` finds signed fields and checks the byte ranges, message digest and
+CMS signature with WebCrypto; `loadSource()` stores the results in `SourceDocument.signatures`.
+`exportDocument()` removes signatures (`strip.ts`): a rewritten file would break them.
+`pkcs12.ts` (node-forge for PKCS#12 decryption) turns a .p12/.pfx into a non-extractable
+WebCrypto key; it is used by the main process (`src/main/certificates.ts`), which keeps keys per
+window in memory and only signs CMS signed attributes for the renderer (`DesktopApi`
+`openCertificateDialog` / `unlockCertificate` / `signWithCertificate` / `releaseCertificate`).
+The renderer flow is `actions/signActions.ts` (Sign dialog, placement layer, export → sign →
+Save As → reopen).
+
 ## Renderer structure
 
 - `state/store.ts` — zustand store (document, history, view state, tool, selection).
@@ -67,7 +83,7 @@ The viewer renders each page as:
 | Element | Test id / attributes |
 | --- | --- |
 | Welcome screen | `welcome`; buttons `welcome-open`, `welcome-new` |
-| Toolbar buttons | `btn-open`, `btn-save`, `btn-save-as`, `btn-undo`, `btn-redo`, `btn-zoom-in`, `btn-zoom-out`, `btn-fit-width`, `btn-rotate-cw`, `btn-rotate-ccw`, `btn-delete-pages`, `btn-insert-blank`, `btn-insert-pages`, `btn-extract`, `btn-split`, `btn-properties`, `btn-watermark`, `btn-page-numbers`, `btn-security`, `btn-print`, `btn-find` |
+| Toolbar buttons | `btn-open`, `btn-save`, `btn-save-as`, `btn-undo`, `btn-redo`, `btn-zoom-in`, `btn-zoom-out`, `btn-fit-width`, `btn-rotate-cw`, `btn-rotate-ccw`, `btn-delete-pages`, `btn-insert-blank`, `btn-insert-pages`, `btn-extract`, `btn-split`, `btn-properties`, `btn-watermark`, `btn-page-numbers`, `btn-security`, `btn-sign`, `btn-print`, `btn-find` |
 | Zoom label | `zoom-level` (text like `100%`) |
 | Tool buttons | `tool-<ToolId>` e.g. `tool-text`, `tool-rect`, `tool-ink` |
 | Sidebar | `sidebar`; each thumbnail `thumbnail` with `data-page-id`, `data-page-index`, `data-selected="true|false"` |
@@ -78,7 +94,9 @@ The viewer renders each page as:
 | Properties panel | `properties-panel` |
 | Form fields | `form-field` with `data-field-name` (the input element itself) |
 | Status bar | `page-count` (text: number of pages), `current-page` (1-based) |
-| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|find"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
+| Dialogs | root `dialog` with `data-dialog="password|properties|watermark|page-numbers|security|extract|split|insert|signature|sign|find"`; buttons `dialog-confirm`, `dialog-cancel`; password field `password-input` |
+| Sign dialog | `sign-choose-certificate`, `sign-certificate-file`, `sign-password`, `sign-certificate`, `sign-field` (value `__new__` = draw a new box), `sign-reason`, `sign-location`, `sign-contact`, `sign-display-name`, `sign-show-date`, `sign-add-image` |
+| Signatures | badge `signature-badge` (`data-status="valid|modified|invalid|unknown"`); tab `sidebar-tab-signatures`, panel `signatures-panel`, items `signature-item` (`data-status`, `data-field`); placement layer `signature-placement` |
 | Notices | `notice` with `data-kind="info|error"` |
 
 ## Commands

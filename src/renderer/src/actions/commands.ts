@@ -26,6 +26,7 @@ import {
   selectAllPages
 } from './pageActions'
 import { printDocument } from './print'
+import { startSigning } from './signActions'
 import { fitPage, fitWidth, toggleSidebar, zoomIn, zoomOut, zoomReset } from './viewActions'
 import { editor, isEditableFocused } from './util'
 
@@ -158,6 +159,8 @@ async function execute(action: MenuAction): Promise<void> {
     case 'security':
       await openDialog({ kind: 'security' })
       return
+    case 'sign':
+      return startSigning()
     case 'find':
       return openFind()
     case 'about':

@@ -1,0 +1,257 @@
+/* ---- Signatures tab ---- */
+.signatures-panel {
+  overflow: hidden;
+}
+.signature-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  user-select: text;
+}
+.signature-item {
+  padding: 6px 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.signature-item:last-child {
+  border-bottom: 0;
+}
+.signature-item-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.signature-item-head:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.signature-item-head:disabled {
+  cursor: default;
+}
+.signature-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.signature-signer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.signature-status {
+  font-size: 11px;
+  font-weight: 500;
+}
+.signature-icon {
+  flex: none;
+  margin-top: 1px;
+}
+.signature-icon-valid,
+.signature-status-valid {
+  color: var(--success);
+}
+.signature-icon-modified,
+.signature-icon-unknown,
+.signature-status-modified,
+.signature-status-unknown {
+  color: var(--warning, #d97706);
+}
+.signature-icon-invalid,
+.signature-status-invalid {
+  color: var(--danger);
+}
+.signature-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 4px 4px 0 30px;
+  font-size: 11px;
+}
+.signature-details dt {
+  color: var(--fg-muted);
+}
+.signature-details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.signature-mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.signature-messages {
+  margin: 6px 4px 0 30px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.signature-problem {
+  color: var(--danger);
+}
+.signature-warning {
+  color: var(--warning, #d97706);
+}
+.signature-coverage {
+  margin: 4px 4px 0 30px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.signature-cert {
+  margin: 4px 4px 0 30px;
+  font-size: 11px;
+}
+.signature-cert summary {
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.signature-cert .signature-details {
+  margin-left: 0;
+}
+.signature-cert-note {
+  margin: 4px 0;
+  color: var(--fg-muted);
+}
+.signatures-edited {
+  display: flex;
+  gap: 6px;
+  margin: 6px 6px 0;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.signatures-edited svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--danger);
+}
+.signatures-footer {
+  flex: none;
+  padding: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.signatures-footer .btn {
+  width: 100%;
+}
+
+/* ---- Status bar badge ---- */
+.signature-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.signature-badge-valid {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+}
+.signature-badge-modified,
+.signature-badge-unknown {
+  background: color-mix(in srgb, var(--warning, #d97706) 15%, transparent);
+  color: var(--warning, #d97706);
+}
+.signature-badge-invalid {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.signature-badge-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* ---- Placing the signature box ---- */
+.signature-placement {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  outline: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -2px;
+  touch-action: none;
+}
+.signature-placement-box {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+/* ---- Sign dialog ---- */
+.sign-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sign-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.sign-certificate {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.sign-certificate svg {
+  flex: none;
+  color: var(--success);
+}
+.sign-certificate-name {
+  font-weight: 600;
+}
+.sign-certificate-meta {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+.sign-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sign-image-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sign-image-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sign-image-preview {
+  max-width: 180px;
+  max-height: 48px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}

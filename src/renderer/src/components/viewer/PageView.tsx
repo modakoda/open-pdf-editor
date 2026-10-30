@@ -14,6 +14,7 @@ import { getPdfPage, pdfjs } from '@renderer/pdf/pdfjs'
 import { getPreviewPage, hasPreviewFailed, markPreviewFailed, shouldNotifyPreviewFailure } from '@renderer/pdf/previews'
 import { useFind } from '@renderer/state/find'
 import { useEditor } from '@renderer/state/store'
+import { SignaturePlacementLayer } from '../signatures/SignaturePlacementLayer'
 import { Decorations } from './Decorations'
 
 /** Upper bound for canvas size (device pixels); larger renders are done at a lower resolution. */
@@ -182,6 +183,7 @@ export const PageView = memo(function PageView({ page, index, scale, source, pre
       <Decorations index={index} scale={scale} />
       <FindHighlights page={page} scale={scale} />
       <PageOverlay page={page} pageIndex={index} scale={scale} />
+      <SignaturePlacementLayer page={page} scale={scale} />
     </div>
   )
 })

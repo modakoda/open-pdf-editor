@@ -3,7 +3,9 @@
  * in a plain browser (tests, `vite` dev without Electron) a fallback based on
  * <input type="file"> and downloads is used so the editor still works.
  */
-import type { DesktopApi, MenuAction, NamedBytes, OpenedFile, SaveFileRequest } from '@shared/ipc'
+import type { DesktopApi, MenuAction, NamedBytes, OpenedFile, SaveFileRequest, UnlockCertificateResult } from '@shared/ipc'
+import { assertSignedAttributes } from '@core/signatures/cms'
+import type { SigningIdentity } from '@core/signatures/pkcs12'
 import { formatWindowTitle } from '@renderer/state/selectors'
 
 function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
@@ -48,6 +50,9 @@ function baseName(path: string): string {
 
 export function createBrowserPlatform(): DesktopApi {
   const menuListeners = new Set<(a: MenuAction) => void>()
+  // Signing certificates (in this page's memory; the desktop app keeps them in the main process).
+  const certificates = new Map<string, { name: string; bytes: Uint8Array | null; identity: SigningIdentity | null }>()
+  let certificateCounter = 0
   return {
     platform: 'browser',
     async openPdfDialog(options) {
@@ -92,7 +97,42 @@ export function createBrowserPlatform(): DesktopApi {
       return () => menuListeners.delete(cb)
     },
     onOpenFile: () => () => undefined,
-    onSaveBeforeClose: () => () => undefined
+    onSaveBeforeClose: () => () => undefined,
+    async openCertificateDialog() {
+      const [file] = await pickFiles('.p12,.pfx,application/x-pkcs12', false)
+      if (!file) return null
+      const id = `cert-${++certificateCounter}`
+      certificates.set(id, { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), identity: null })
+      return { id, name: file.name }
+    },
+    async unlockCertificate(id, password): Promise<UnlockCertificateResult> {
+      const entry = certificates.get(id)
+      if (!entry) throw new Error('The certificate is no longer available. Choose it again.')
+      if (!entry.identity) {
+        const { loadPkcs12, CertificatePasswordError } = await import('@core/signatures/pkcs12')
+        try {
+          entry.identity = await loadPkcs12(entry.bytes!, password)
+          entry.bytes = null
+        } catch (e) {
+          if (e instanceof CertificatePasswordError) return { ok: false, reason: 'password', message: e.message }
+          return { ok: false, reason: 'unsupported', message: e instanceof Error ? e.message : String(e) }
+        }
+      }
+      const { identity } = entry
+      return {
+        ok: true,
+        certificate: { id, name: entry.name, certificate: identity.certificate, chain: identity.chain, summary: identity.summary, keyType: identity.keyType }
+      }
+    },
+    async signWithCertificate(id, data) {
+      const identity = certificates.get(id)?.identity
+      if (!identity) throw new Error('The certificate is locked. Enter its password first.')
+      assertSignedAttributes(data)
+      return identity.sign(data)
+    },
+    releaseCertificate(id) {
+      certificates.delete(id)
+    }
   }
 }
 

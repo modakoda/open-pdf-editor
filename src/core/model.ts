@@ -18,6 +18,7 @@
  * - `rotation` on box objects is in degrees, clockwise as seen in page space, around the
  *   center of the box.
  */
+import type { PdfSignatureInfo } from './signatures/types'
 
 export type Rotation = 0 | 90 | 180 | 270
 
@@ -185,6 +186,8 @@ export interface SourceDocument {
    * loadSource(); optional only so hand-built SourceDocuments stay valid (A4 is assumed then).
    */
   pageInfo?: SourcePageInfo[]
+  /** Digital signatures of the file and their verification results (set by loadSource()). */
+  signatures?: PdfSignatureInfo[]
 }
 
 /** Kinds of content that already exist in a page's content stream. */

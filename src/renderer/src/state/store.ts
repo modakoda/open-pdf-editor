@@ -63,7 +63,7 @@ export interface PendingImage {
 export type FitMode = 'width' | 'page' | null
 
 /** Which list the left sidebar shows. */
-export type SidebarTab = 'pages' | 'fields'
+export type SidebarTab = 'pages' | 'fields' | 'signatures'
 
 export const ZOOM_MIN = 0.25
 export const ZOOM_MAX = 5

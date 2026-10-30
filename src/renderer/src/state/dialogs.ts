@@ -32,6 +32,8 @@ export type DialogRequest =
   | { kind: 'split' }
   | { kind: 'insert'; source: SourceDocument }
   | { kind: 'about' }
+  /** Digital signing; resolves with a SignRequest (state/signing.ts). */
+  | { kind: 'sign' }
 
 export type DialogKind = DialogRequest['kind']
 

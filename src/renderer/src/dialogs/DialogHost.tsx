@@ -7,6 +7,7 @@ import { PageNumbersDialog } from './PageNumbersDialog'
 import { PasswordDialog } from './PasswordDialog'
 import { PropertiesDialog } from './PropertiesDialog'
 import { SecurityDialog } from './SecurityDialog'
+import { SignDialog } from './SignDialog'
 import { SplitDialog } from './SplitDialog'
 import { WatermarkDialog } from './WatermarkDialog'
 
@@ -36,5 +37,7 @@ export function DialogHost() {
       return <InsertPagesDialog key={id} source={request.source} onClose={close} />
     case 'about':
       return <AboutDialog key={id} onClose={() => close(null)} />
+    case 'sign':
+      return <SignDialog key={id} onClose={close} />
   }
 }

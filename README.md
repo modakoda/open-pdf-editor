@@ -31,6 +31,16 @@ checkbox, radio, dropdown, list and signature fields; optionally flatten forms o
 **Document**: title/author/subject/keywords, watermark, page numbers, password protection (AES-256),
 removing a password from a file you can open, printing.
 
+**Digital signatures**: sign with a PKCS#12 certificate (.p12/.pfx, RSA or ECDSA) into an empty
+signature field or a new box you draw, with a visible appearance (name, date, reason, optional
+drawn/typed signature) and optional reason, location and contact. Signatures are PAdES baseline
+B-B compatible (SubFilter ETSI.CAdES.detached, SHA-256) and are added as an incremental update, so
+the signed bytes stay intact and earlier signatures stay valid. Opening a file verifies its
+signatures (ETSI.CAdES.detached and adbe.pkcs7.detached): integrity, signer, time, reason, and
+whether the file changed after signing, shown in the Signatures tab and a status-bar badge. The
+certificate password is only used to unlock the key, which stays in memory in the app's main
+process; it is never stored.
+
 **Editor**: undo/redo for every change, zoom and fit modes, thumbnails, keyboard shortcuts,
 drag and drop, "Open With" / file associations, recent files, unsaved-changes protection.
 
@@ -40,7 +50,11 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
   content (that removes it from the page), and check the result before sharing.
 - Moved, resized or retyped content is drawn on top of the page's other content. Text retyped
   with characters the original font lacks uses a similar bundled font.
-- Visible signatures are images; cryptographic digital signatures are not created.
+- Signature verification checks integrity, not identity: certificates are not validated against
+  trusted authorities or revocation lists ("Identity not verified"). Signing adds no timestamp
+  (PAdES B-B) and password-protected documents cannot be signed.
+- Saving changes to a signed file rewrites it, which removes its signatures (the app warns and
+  offers to save a copy instead); signing an unchanged file keeps its existing signatures.
 - Bundled Unicode fonts cover Latin, Greek and Cyrillic. CJK text needs a CJK font (not bundled).
 - When pages from several PDFs with forms are merged, forms of the inserted files are flattened,
   and links on inserted pages that jump within their original file are removed (web links are kept).

@@ -6,6 +6,7 @@ import type { OpenedFile } from '@shared/ipc'
 import { isDesktop, platform } from '@renderer/platform'
 import { releasePdfResources } from '@renderer/pdf/resources'
 import { openDialog, type ConfirmResult } from '@renderer/state/dialogs'
+import { documentSignatures, isUnchangedSinceOpen, rememberOpenedDocument, useSigning } from '@renderer/state/signing'
 import { baseName, editor, isPasswordError, notifyError, notifyInfo } from './util'
 
 export const UNTITLED_NAME = 'Untitled.pdf'
@@ -79,8 +80,10 @@ export async function withBusy<T>(message: string, fn: () => Promise<T>): Promis
   }
 }
 
-function installDocument(doc: EditorDocument, file: { filePath: string | null; fileName: string }): void {
+/** Show a document that was just loaded from `file` (replacing the current one). */
+export function installDocument(doc: EditorDocument, file: { filePath: string | null; fileName: string }): void {
   releasePdfResources(Object.keys(doc.sources))
+  rememberOpenedDocument(doc)
   editor().setDocument(doc, file)
 }
 
@@ -245,12 +248,55 @@ function exclusive(kind: 'save' | 'save-as', task: () => Promise<boolean>): Prom
   return entry.promise
 }
 
-async function exportForSave(): Promise<{ doc: EditorDocument; bytes: Uint8Array; warnings: string[] } | null> {
+interface ExportedForSave {
+  doc: EditorDocument
+  bytes: Uint8Array
+  warnings: string[]
+  /** The file's digital signatures are not in `bytes` (the document was changed). */
+  signaturesRemoved: boolean
+}
+
+async function exportForSave(): Promise<ExportedForSave | null> {
   const { doc } = editor()
   if (!doc) return null
   const warnings: string[] = []
+  const signed = hasLiveSignatures(doc)
+  // A signed file without changes is written as it is: re-exporting it would break the signatures.
+  if (signed && isUnchangedSinceOpen(doc)) {
+    return { doc, bytes: doc.sources[doc.primarySourceId!].bytes, warnings, signaturesRemoved: false }
+  }
   const bytes = await exportDocument(doc, { onWarning: (w) => warnings.push(w.message) })
-  return { doc, bytes, warnings }
+  return { doc, bytes, warnings, signaturesRemoved: signed }
+}
+
+function markSignaturesRemoved(exported: ExportedForSave): void {
+  if (exported.signaturesRemoved) useSigning.setState({ removedInSession: editor().docSession })
+}
+
+/** The open file is digitally signed (and the signatures were not removed by saving changes). */
+export function hasLiveSignatures(doc: EditorDocument | null): boolean {
+  return documentSignatures(doc).length > 0 && useSigning.getState().removedInSession !== editor().docSession
+}
+
+/**
+ * Saving changes to a signed file removes its signatures (they would be invalid): offer to save a
+ * copy instead. Resolves 'save' (go ahead), 'copy' (Save As instead) or null (cancelled).
+ */
+async function confirmSaveSigned(): Promise<'save' | 'copy' | null> {
+  const { doc, fileName } = editor()
+  if (!doc || !hasLiveSignatures(doc) || isUnchangedSinceOpen(doc)) return 'save'
+  const count = documentSignatures(doc).length
+  const choice = await openDialog<ConfirmResult>({
+    kind: 'confirm',
+    title: 'Signed document',
+    message:
+      `“${fileName}” is digitally signed. Saving your changes removes its ${count === 1 ? 'signature' : `${count} signatures`}, ` +
+      'because they would no longer be valid. Save the changes as a new copy to keep the signed original?',
+    confirmLabel: 'Save as copy…',
+    altLabel: 'Save and remove signatures',
+    cancelLabel: 'Cancel'
+  })
+  return choice === 'confirm' ? 'copy' : choice === 'alt' ? 'save' : null
 }
 
 /** "Saved x.pdf", plus anything the engine had to change or skip while saving. */
@@ -283,6 +329,9 @@ export async function save(): Promise<boolean> {
   if (!doc) return false
   if (!hasPagesOrNotify(doc)) return false
   if (!filePath) return saveAs()
+  const signed = await confirmSaveSigned()
+  if (signed === 'copy') return saveAs()
+  if (!signed) return false
   return exclusive('save', async () => {
     editor().setBusy('Saving…')
     try {
@@ -290,6 +339,7 @@ export async function save(): Promise<boolean> {
       if (!exported) return false
       await platform.writeFile(filePath, exported.bytes)
       editor().markSaved({ filePath, fileName: baseName(filePath) }, exported.doc)
+      markSignaturesRemoved(exported)
       notifyInfo(savedMessage(baseName(filePath), exported.warnings))
       return true
     } catch (err) {
@@ -321,6 +371,7 @@ async function saveAsNow(): Promise<boolean> {
     const path = await platform.saveFileDialog({ defaultPath, bytes: exported.bytes })
     if (!path) return false
     editor().markSaved({ filePath: path, fileName: baseName(path) }, exported.doc)
+    markSignaturesRemoved(exported)
     notifyInfo(savedMessage(baseName(path), exported.warnings))
     return true
   } catch (err) {

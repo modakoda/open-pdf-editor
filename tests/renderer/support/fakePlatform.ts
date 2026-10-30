@@ -41,7 +41,11 @@ export const fake = {
   onSaveBeforeClose: vi.fn<DesktopApi['onSaveBeforeClose']>((cb) => {
     listeners.saveBeforeClose.add(cb)
     return () => listeners.saveBeforeClose.delete(cb)
-  })
+  }),
+  openCertificateDialog: vi.fn<NonNullable<DesktopApi['openCertificateDialog']>>(async () => null),
+  unlockCertificate: vi.fn<NonNullable<DesktopApi['unlockCertificate']>>(async () => ({ ok: false, reason: 'password', message: 'Incorrect certificate password.' })),
+  signWithCertificate: vi.fn<NonNullable<DesktopApi['signWithCertificate']>>(async () => new Uint8Array(256)),
+  releaseCertificate: vi.fn<NonNullable<DesktopApi['releaseCertificate']>>()
 } satisfies DesktopApi
 
 export const platformModule = {
@@ -66,4 +70,7 @@ export function resetFakePlatform(): void {
   fake.saveFilesToFolder.mockImplementation(async () => '/out')
   fake.getRecentFiles.mockImplementation(async () => [])
   fake.writeFile.mockImplementation(async () => undefined)
+  fake.openCertificateDialog.mockImplementation(async () => null)
+  fake.unlockCertificate.mockImplementation(async () => ({ ok: false, reason: 'password', message: 'Incorrect certificate password.' }))
+  fake.signWithCertificate.mockImplementation(async () => new Uint8Array(256))
 }

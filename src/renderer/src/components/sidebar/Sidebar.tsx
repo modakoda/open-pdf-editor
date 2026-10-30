@@ -4,9 +4,10 @@
  *   reordering (and dropping PDF files to insert their pages), a context menu with page
  *   operations, and keyboard navigation (arrows, Delete).
  * - Fields: every form field of the document (FieldsPanel.tsx).
+ * - Signatures: digital signatures and their verification (shown when the file is signed).
  */
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { Copy, FileOutput, FilePlus, RotateCcw, RotateCw, Trash } from 'lucide-react'
+import { Copy, FileOutput, FilePlus, FileSignature, RotateCcw, RotateCw, Trash, type LucideIcon } from 'lucide-react'
 import { displayRotation, displaySize, type PageEntry, type SourceDocument } from '@core'
 import {
   deleteTargetPages,
@@ -23,6 +24,7 @@ import { getPreviewPage, hasPreviewFailed, previewKeyFor } from '@renderer/pdf/p
 import { getPreviewThumbnailUrl, getThumbnailUrl } from '@renderer/pdf/thumbnails'
 import { useEditor, type SidebarTab } from '@renderer/state/store'
 import { Menu, type MenuEntry } from '../common/Menu'
+import { SignaturesPanel, useSignatureCount } from '../signatures/SignaturesPanel'
 import { FieldsPanel, useFieldCount } from './FieldsPanel'
 import './sidebar.css'
 
@@ -64,16 +66,19 @@ export function Sidebar() {
   const setTab = useEditor((s) => s.setSidebarTab)
   const pageCount = useEditor((s) => s.doc?.pages.length ?? 0)
   const fieldCount = useFieldCount()
+  const signatureCount = useSignatureCount()
   const tool = useEditor((s) => s.tool)
   // Entering Prepare form (or a field tool) shows the field list.
   const formTool = tool === 'form-design' || tool.startsWith('field-')
   useEffect(() => {
     if (formTool) useEditor.getState().setSidebarTab('fields')
   }, [formTool])
-  const tabs: { id: SidebarTab; label: string; count: number }[] = [
+  // Tabs with an icon show it instead of the label (the sidebar is narrow).
+  const tabs: { id: SidebarTab; label: string; count: number; icon?: LucideIcon }[] = [
     { id: 'pages', label: 'Pages', count: pageCount },
     { id: 'fields', label: 'Fields', count: fieldCount }
   ]
+  if (signatureCount > 0 || tab === 'signatures') tabs.push({ id: 'signatures', label: 'Signatures', count: signatureCount, icon: FileSignature })
   return (
     <aside className="sidebar" data-testid="sidebar" aria-label="Sidebar">
       <div className="sidebar-tabs" role="tablist" aria-label="Sidebar">
@@ -83,18 +88,20 @@ export function Sidebar() {
             type="button"
             role="tab"
             id={`sidebar-tab-${t.id}`}
-            className={`sidebar-tab${tab === t.id ? ' active' : ''}`}
+            className={`sidebar-tab${tab === t.id ? ' active' : ''}${t.icon ? ' sidebar-tab-icon' : ''}`}
             data-testid={`sidebar-tab-${t.id}`}
             aria-selected={tab === t.id}
             aria-controls={`sidebar-panel-${t.id}`}
+            aria-label={t.icon ? `${t.label} (${t.count})` : undefined}
+            title={t.icon ? t.label : undefined}
             onClick={() => setTab(t.id)}
           >
-            {t.label}
+            {t.icon ? <t.icon size={14} aria-hidden="true" /> : t.label}
             <span className="sidebar-count">{t.count}</span>
           </button>
         ))}
       </div>
-      {tab === 'pages' ? <PagesPanel /> : <FieldsPanel />}
+      {tab === 'pages' ? <PagesPanel /> : tab === 'signatures' ? <SignaturesPanel /> : <FieldsPanel />}
     </aside>
   )
 }

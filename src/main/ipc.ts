@@ -20,6 +20,7 @@ import {
   uniqueName,
   writeFileAtomic
 } from './files'
+import { registerCertificateHandlers } from './certificates'
 import { INTERNAL_IPC } from './internal-ipc'
 import { dispatchMenuAction } from './menu'
 import { openPath } from './open'
@@ -299,6 +300,8 @@ export function registerIpcHandlers(): void {
       console.error('showItemInFolder:', err)
     }
   })
+
+  registerCertificateHandlers(senderContext)
 
   // Internal (preload only): a real file was dropped / picked in the page and its path was
   // resolved with webUtils.getPathForFile, so the user chose it.

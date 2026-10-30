@@ -152,9 +152,13 @@ export async function renderSignature(input: SignatureInput): Promise<PendingIma
 
 export interface SignatureDialogProps {
   onClose(): void
+  /** Receives the signature image instead of placing it with the Signature tool. */
+  onCreate?(image: PendingImage): void
+  /** Confirm button label (default "Use signature"). */
+  confirmLabel?: string
 }
 
-export function SignatureDialog({ onClose }: SignatureDialogProps) {
+export function SignatureDialog({ onClose, onCreate, confirmLabel = 'Use signature' }: SignatureDialogProps) {
   const [mode, setMode] = useState<'draw' | 'type'>('draw')
   const [strokes, setStrokes] = useState<Point[][]>([])
   const [color, setColor] = useState(SIGNATURE_COLORS[0])
@@ -215,6 +219,11 @@ export function SignatureDialog({ onClose }: SignatureDialogProps) {
       if (!img) {
         s.showNotice('error', 'The signature is empty.')
         setBusy(false)
+        return
+      }
+      if (onCreate) {
+        onCreate(img)
+        onClose()
         return
       }
       s.setPendingImage(img)
@@ -410,7 +419,7 @@ export function SignatureDialog({ onClose }: SignatureDialogProps) {
             disabled={!canConfirm}
             onClick={() => void confirm()}
           >
-            Use signature
+            {confirmLabel}
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@
  * Contract between the Electron main process, the preload script and the renderer.
  * The preload exposes an object implementing `DesktopApi` as `window.desktop`.
  */
+import type { CertificateSummary } from '../core/signatures/x509'
 
 export interface OpenedFile {
   /** Absolute path on disk (null for files that did not come from disk). */
@@ -21,6 +22,28 @@ export interface NamedBytes {
   name: string
   bytes: Uint8Array
 }
+
+/** A PKCS#12 certificate file the user picked; the main process holds its bytes. */
+export interface CertificateFile {
+  id: string
+  /** Base name, e.g. "jane.p12". */
+  name: string
+}
+
+/** An unlocked certificate: public parts only (the private key stays in the main process). */
+export interface UnlockedCertificate extends CertificateFile {
+  /** Signer certificate, DER. */
+  certificate: Uint8Array
+  /** Issuer certificates from the file, DER, nearest first. */
+  chain: Uint8Array[]
+  summary: CertificateSummary
+  keyType: 'RSA' | 'EC'
+}
+
+export type UnlockCertificateResult =
+  | { ok: true; certificate: UnlockedCertificate }
+  /** 'password': wrong password; 'unsupported': not a usable PKCS#12 file (see message). */
+  | { ok: false; reason: 'password' | 'unsupported'; message: string }
 
 /** What the renderer tells the main process about the window's document. */
 export interface DocumentState {
@@ -65,6 +88,7 @@ export type MenuAction =
   | 'watermark'
   | 'page-numbers'
   | 'security'
+  | 'sign'
   | 'find'
   | 'about'
 
@@ -113,6 +137,17 @@ export interface DesktopApi {
    * confirmClose() on success, or cancelClose() on failure/cancel to keep the window open.
    */
   onSaveBeforeClose(callback: () => void): () => void
+  /**
+   * Digital signing (optional: older shells and the browser build may lack it). The user picks a
+   * PKCS#12 file; the main process keeps it and, once unlocked with the password, its private
+   * key, only in memory. Passwords are never stored.
+   */
+  openCertificateDialog?(): Promise<CertificateFile | null>
+  unlockCertificate?(id: string, password: string): Promise<UnlockCertificateResult>
+  /** Signs CMS signed attributes (DER) with the unlocked certificate's key (SHA-256). */
+  signWithCertificate?(id: string, data: Uint8Array): Promise<Uint8Array>
+  /** Forgets the certificate and its key. */
+  releaseCertificate?(id: string): void
 }
 
 /** IPC channel names (invoke = request/response, send = fire-and-forget, event = main → renderer). */
@@ -132,5 +167,9 @@ export const IPC = {
   showItemInFolder: 'shell:show-item-in-folder',
   menuAction: 'event:menu-action',
   openFile: 'event:open-file',
-  saveBeforeClose: 'event:save-before-close'
+  saveBeforeClose: 'event:save-before-close',
+  openCertificateDialog: 'cert:open-dialog',
+  unlockCertificate: 'cert:unlock',
+  signWithCertificate: 'cert:sign',
+  releaseCertificate: 'cert:release'
 } as const

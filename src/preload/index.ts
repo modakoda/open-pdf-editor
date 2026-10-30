@@ -102,7 +102,11 @@ const api: DesktopApi = {
   showItemInFolder: (path) => ipcRenderer.send(IPC.showItemInFolder, path),
   onMenuAction: (callback) => subscribeMenuAction(callback),
   onOpenFile: (callback) => subscribeOpenFile(callback),
-  onSaveBeforeClose: (callback) => subscribeSaveBeforeClose(() => callback())
+  onSaveBeforeClose: (callback) => subscribeSaveBeforeClose(() => callback()),
+  openCertificateDialog: () => ipcRenderer.invoke(IPC.openCertificateDialog),
+  unlockCertificate: (id, password) => ipcRenderer.invoke(IPC.unlockCertificate, id, password),
+  signWithCertificate: (id, data) => ipcRenderer.invoke(IPC.signWithCertificate, id, data),
+  releaseCertificate: (id) => ipcRenderer.send(IPC.releaseCertificate, id)
 }
 
 contextBridge.exposeInMainWorld('desktop', api)

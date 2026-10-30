@@ -10,6 +10,7 @@ import {
   FileInput,
   FileOutput,
   FilePlus,
+  FileSignature,
   FolderOpen,
   Hash,
   Info,
@@ -329,6 +330,14 @@ function PageBar({ pageCount }: { pageCount: number }) {
           text="Security"
           showLabel
           onClick={run('security')}
+        />
+        <IconButton
+          testId="btn-sign"
+          icon={FileSignature}
+          label="Sign digitally with a certificate…"
+          text="Sign"
+          showLabel
+          onClick={run('sign')}
         />
       </div>
     </div>

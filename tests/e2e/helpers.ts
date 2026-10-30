@@ -58,6 +58,7 @@ export const ALL_MENU_ACTIONS: MenuAction[] = [
   'watermark',
   'page-numbers',
   'security',
+  'sign',
   'find',
   'about'
 ]
@@ -79,7 +80,11 @@ export const DESKTOP_API_METHODS: (keyof DesktopApi)[] = [
   'showItemInFolder',
   'onMenuAction',
   'onOpenFile',
-  'onSaveBeforeClose'
+  'onSaveBeforeClose',
+  'openCertificateDialog',
+  'unlockCertificate',
+  'signWithCertificate',
+  'releaseCertificate'
 ]
 
 /** Fails with a clear message when the app has not been built. */

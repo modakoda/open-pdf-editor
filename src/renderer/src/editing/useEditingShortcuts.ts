@@ -1,5 +1,6 @@
 /**
- * Keyboard shortcuts for the editing layer (delete/nudge selected object, Escape, tool hotkeys).
+ * Keyboard shortcuts for the editing layer (delete/nudge selected object, Escape, tool hotkeys,
+ * Ctrl/Cmd+] / [ (with Shift: to front / back) to re-order selected existing content).
  * Called once from App. Ignores key events that originate in inputs, textareas and contenteditables.
  */
 import { useEffect } from 'react'
@@ -8,7 +9,7 @@ import { useEditor } from '@renderer/state/store'
 import { useEditing } from './editingState'
 import { isFieldTool } from './fields'
 import { duplicateSelected } from './objects'
-import { deleteSelection, nudgeSelection, selectionPageId } from './selection'
+import { deleteSelection, nudgeSelection, reorderSelection, selectionPageId } from './selection'
 import { activateTool, TOOL_BY_HOTKEY } from './tools'
 import { handleRedactionKey } from '@renderer/actions/redactActions'
 
@@ -78,6 +79,15 @@ export function handleEditingKeyDown(e: KeyboardEvent): void {
     e.preventDefault()
     const { pageId, itemId } = s.selectedElement
     useEditing.getState().setEditingContent({ pageId, itemId })
+    return
+  }
+
+  // By character, not key position (Ctrl/Cmd+Plus is on that key in some layouts); typing a
+  // bracket may need Alt (AltGr / Option).
+  const bracket = e.key === ']' || e.key === '}' ? 1 : e.key === '[' || e.key === '{' ? -1 : 0
+  if (bracket && mod && s.selectedElement?.kind === 'content') {
+    e.preventDefault()
+    reorderSelection(bracket > 0 ? (e.shiftKey ? 'front' : 'forward') : e.shiftKey ? 'back' : 'backward')
     return
   }
 

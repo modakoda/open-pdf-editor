@@ -6,7 +6,7 @@
 import { statSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
 import { copyFixture, expect, makeTempDir, test } from './helpers'
-import { pdfAnnotationSubtypes, pdfFieldRects, pdfPageTexts, pdfTextItems } from './pdf'
+import { pdfAnnotationSubtypes, pdfFieldRects, pdfPageTexts, pdfPaintOrder, pdfTextItems, type PaintedItem } from './pdf'
 
 const byTestId = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`)
 
@@ -74,6 +74,40 @@ test.describe('editing existing content', () => {
     const savedTitle = items.find((i) => i.str.includes('Existing title'))!
     expect(savedTitle.x).toBeGreaterThan(72 + 40) // moved right from x = 72
     expect(savedTitle.y).toBeCloseTo(720, 0) // same baseline
+  })
+
+  test('a moved image stays under a rectangle drawn after it until brought to the front', async ({ launch }) => {
+    const file = await copyFixture('existing-content.pdf', makeTempDir())
+    const { page } = await launch({ args: [file] })
+    await openPage(page)
+    await byTestId(page, 'tool-edit-content').click()
+    // Without text: the image (x 72) and the yellow rectangle (300..450 × 500..550) after it.
+    const graphics = (painted: PaintedItem[]) => painted.filter((p) => p.kind !== 'text')
+    expect(graphics(await pdfPaintOrder(file, 0)).map((p) => p.kind)).toEqual(['image', 'path'])
+
+    const image = page.locator('[data-testid="content-item"][data-kind="image"]').first()
+    await expect(image).toBeAttached({ timeout: 20_000 })
+    await image.click()
+    const x = byTestId(page, 'prop-x')
+    await x.fill('250')
+    await x.press('Enter')
+    await saveInPlace(page, file)
+    let painted = graphics(await pdfPaintOrder(file, 0))
+    expect(painted.map((p) => p.kind)).toEqual(['image', 'path'])
+    expect((painted[0] as { x: number }).x).toBeCloseTo(250, 0)
+
+    // Select it by its part left of the rectangle, then Ctrl/Cmd+Shift+] (bring to front).
+    await image.click({ position: { x: 5, y: 5 } })
+    await expect(image).toHaveAttribute('data-selected', 'true')
+    await expect(byTestId(page, 'prop-front')).toBeEnabled()
+    await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
+    await expect(byTestId(page, 'prop-front')).toBeDisabled()
+    await saveInPlace(page, file)
+    painted = graphics(await pdfPaintOrder(file, 0))
+    expect(painted.map((p) => p.kind)).toEqual(['path', 'image'])
+    expect((painted[1] as { x: number }).x).toBeCloseTo(250, 0)
+    // The text is unchanged.
+    expect((await pdfPageTexts(file))[0]).toContain('Existing title')
   })
 
   test('deletes an existing link annotation', async ({ launch }) => {

@@ -227,6 +227,11 @@
   color: var(--danger);
   font-size: 11px;
 }
+.ed-prop-buttons {
+  display: flex;
+  gap: 4px;
+}
+
 .ed-action-wide {
   width: auto;
   gap: 5px;

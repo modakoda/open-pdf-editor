@@ -1,7 +1,8 @@
 /**
  * Content-stream engine: finds the items drawn on a page (text runs, images, vector paths,
  * form XObjects, shadings) and rewrites the page's content to delete, move/transform,
- * re-color or re-type them. Operates on pdf-lib objects; used by export.ts and load.ts.
+ * re-color, re-type or re-order them. Edited items keep their place in the stacking order
+ * (see rewrite.ts). Operates on pdf-lib objects; used by export.ts and load.ts.
  *
  * Item ids must be stable for the same page content (e.g. derived from operator positions),
  * because ContentEdits saved in the editor's undo history refer to them.
@@ -65,8 +66,8 @@ export function listContentItems(
 /**
  * Rewrite the page content so that `edits` (item ids from listContentItems with the same
  * arguments) take effect: deleted items are removed, transformed items are redrawn with the
- * extra page-space transform, text items get new text / color / size. Everything else must
- * render exactly as before.
+ * extra page-space transform, text items get new text / color / size, items with a `z` are
+ * drawn at that position of the listing order. Everything else must render exactly as before.
  */
 export async function applyContentEdits(
   pdfDoc: PDFDocument,

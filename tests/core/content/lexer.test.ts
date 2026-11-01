@@ -3,6 +3,7 @@ import { CMap, ToUnicodeMap } from '../../../src/core/content/cmap'
 import { PdfDictOp, PdfName, PdfStr, parseContent } from '../../../src/core/content/lexer'
 import { fmt, writeName, writeOperand, writeLiteralBytes } from '../../../src/core/content/serialize'
 import { latin1 } from './helpers'
+import { timeBudget } from '../helpers'
 
 const text = (s: PdfStr) => String.fromCharCode(...s.bytes)
 
@@ -105,7 +106,7 @@ describe('content stream tokenizer', () => {
     const ops = parseContent(data)
     const ms = performance.now() - t0
     expect(ops.length).toBe(50000)
-    expect(ms).toBeLessThan(1000)
+    expect(ms).toBeLessThan(timeBudget(1000))
   })
 })
 

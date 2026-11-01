@@ -9,7 +9,7 @@
  *
  * The app must be built first (`npm run build`, or `npm run test:e2e`).
  */
-import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -304,6 +304,23 @@ export async function dialogCalls(app: ElectronApplication, method?: string): Pr
 
 // ---------------------------------------------------------------------------------------------
 // Windows and menu
+
+/**
+ * Bounding box of `locator` once the layout stops changing. Choosing a tool opens its options
+ * panel, and in a narrow window (1024 px CI screens) the page re-fits its zoom a moment later:
+ * coordinates measured before that miss the page.
+ */
+export async function settledBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  const same = (a: object | null, b: object | null) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b)
+  let last = await locator.boundingBox()
+  for (let i = 0; i < 50; i++) {
+    await locator.page().waitForTimeout(100)
+    const box = await locator.boundingBox()
+    if (same(box, last)) return box!
+    last = box
+  }
+  throw new Error('layout did not settle')
+}
 
 export async function windowCount(app: ElectronApplication): Promise<number> {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)

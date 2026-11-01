@@ -47,16 +47,19 @@ async function closeWindow(app: ElectronApplication, page: Page): Promise<void> 
   await win.evaluate((w) => w.close())
 }
 
-/** Blocks the page's main thread for `ms` (it cannot process IPC meanwhile). */
-function keepRendererBusy(page: Page, ms: number): Promise<unknown> {
-  return page
-    .evaluate((duration) => {
+/**
+ * Blocks the page's main thread for `ms` (it cannot process IPC meanwhile). Resolves once the
+ * blocking task is queued, so IPC sent afterwards waits for it.
+ */
+async function keepRendererBusy(page: Page, ms: number): Promise<void> {
+  await page.evaluate((duration) => {
+    setTimeout(() => {
       const end = Date.now() + duration
       while (Date.now() < end) {
         /* busy */
       }
-    }, ms)
-    .catch(() => undefined)
+    })
+  }, ms)
 }
 
 test.describe('close confirmation', () => {
@@ -108,7 +111,7 @@ test.describe('close confirmation', () => {
     await setDocumentState(page, { title: 'draft.pdf', dirty: true, hasDocument: true, filePath: null })
     await expect.poll(() => windowTitle(app, page)).toContain('draft.pdf')
     await mockMessageBox(app, 0) // Save
-    void keepRendererBusy(page, 1500)
+    await keepRendererBusy(page, 1500)
     await closeWindow(app, page)
     await expect.poll(async () => (await dialogCalls(app, 'showMessageBox')).length).toBe(1)
     await new Promise((r) => setTimeout(r, 400))
@@ -268,7 +271,7 @@ test.describe('closing after a failed save', () => {
     await setDocumentState(page, { title: 'draft.pdf', dirty: true, hasDocument: true, filePath: null })
     await expect.poll(() => windowTitle(app, page)).toContain('draft.pdf')
     await mockMessageBox(app, 0) // Save
-    void keepRendererBusy(page, 3000) // it cannot answer saveBeforeClose yet
+    await keepRendererBusy(page, 3000) // it cannot answer saveBeforeClose yet
     await closeWindow(app, page)
     await expect.poll(async () => (await dialogCalls(app, 'showMessageBox')).length).toBe(1)
     await mockMessageBox(app, 1) // Don't Save

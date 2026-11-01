@@ -15,6 +15,7 @@ import {
   mockOpenDialog,
   mockSaveDialog,
   nextWindow,
+  settledBox,
   test,
   windowCount,
   windowTitle
@@ -128,7 +129,7 @@ test.describe('editor UI', () => {
     const p0 = await firstPage(page)
     await byTestId(page, 'tool-text').click()
     const overlay = p0.locator('[data-testid="page-overlay"]')
-    const box = (await overlay.boundingBox())!
+    const box = await settledBox(overlay)
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.4)
     const editor = byTestId(page, 'text-object-editor')
     await expect(editor).toBeVisible()
@@ -154,7 +155,7 @@ test.describe('editor UI', () => {
     await expectPageCount(page, 3)
     const p0 = await firstPage(page)
     await byTestId(page, 'tool-text').click()
-    const box = (await p0.locator('[data-testid="page-overlay"]').boundingBox())!
+    const box = await settledBox(p0.locator('[data-testid="page-overlay"]'))
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5)
     const editor = byTestId(page, 'text-object-editor')
     await expect(editor).toBeVisible()
@@ -240,7 +241,7 @@ test.describe('editor UI', () => {
     await expectPageCount(page, 3)
     const p0 = await firstPage(page)
     await byTestId(page, 'tool-text').click()
-    const box = (await p0.locator('[data-testid="page-overlay"]').boundingBox())!
+    const box = await settledBox(p0.locator('[data-testid="page-overlay"]'))
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.4)
     const editor = byTestId(page, 'text-object-editor')
     await expect(editor).toBeVisible()

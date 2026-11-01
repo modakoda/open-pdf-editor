@@ -5,7 +5,7 @@
  */
 import { statSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { copyFixture, expect, makeTempDir, test } from './helpers'
+import { copyFixture, expect, makeTempDir, settledBox, test } from './helpers'
 import { pdfAnnotationSubtypes, pdfFieldRects, pdfPageTexts, pdfPaintOrder, pdfTextItems, type PaintedItem } from './pdf'
 
 const byTestId = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`)
@@ -17,7 +17,7 @@ async function openPage(page: Page): Promise<Locator> {
 }
 
 async function drag(page: Page, target: Locator, dx: number, dy: number): Promise<void> {
-  const box = (await target.boundingBox())!
+  const box = await settledBox(target)
   const x = box.x + box.width / 2
   const y = box.y + box.height / 2
   await page.mouse.move(x, y)
@@ -136,7 +136,7 @@ test.describe('editing existing content', () => {
     await drag(page, nameBox, 0, 60)
 
     await byTestId(page, 'tool-field-text').click()
-    const pageBox = (await first.boundingBox())!
+    const pageBox = await settledBox(first)
     // Empty area right of the existing fields, near the top so it is on screen.
     const sx = pageBox.x + pageBox.width * 0.72
     const sy = pageBox.y + pageBox.height * 0.08
@@ -158,7 +158,7 @@ test.describe('editing existing content', () => {
     const first = await launch({ args: [file] })
     const p0 = await openPage(first.page)
     await byTestId(first.page, 'tool-text').click()
-    const box = (await p0.boundingBox())!
+    const box = await settledBox(p0)
     await first.page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5)
     await first.page.keyboard.type('Persistent note')
     await first.page.keyboard.press('Escape')

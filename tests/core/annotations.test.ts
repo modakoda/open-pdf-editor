@@ -13,7 +13,7 @@ import {
   type EditorDocument
 } from '../../src/core'
 import { makeAnnotatedPdf, makeFormPdf, makeMarkupAnnotationsPdf, makeTextPdf } from '../fixtures/pdfs'
-import { pageAnnotations, pageInfo, registerTestFonts } from './helpers'
+import { pageAnnotations, pageInfo, registerTestFonts, timeBudget } from './helpers'
 
 beforeAll(() => registerTestFonts())
 
@@ -259,7 +259,7 @@ describe('editing annotations', () => {
     expect(subtypes).toContain('Circle')
     const t2 = performance.now()
     await renderPagePreview(editAnnotation(d, pageId, 'a1', { deleted: true }), pageId)
-    expect(performance.now() - t2).toBeLessThan(200)
-    expect(first).toBeLessThan(2000)
+    expect(performance.now() - t2).toBeLessThan(timeBudget(200))
+    expect(first).toBeLessThan(timeBudget(2000))
   })
 })

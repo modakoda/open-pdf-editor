@@ -4,7 +4,7 @@
  */
 import { statSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { copyFixture, expect, makeTempDir, test } from './helpers'
+import { copyFixture, expect, makeTempDir, settledBox, test } from './helpers'
 import { pdfContainsRaw, pdfPageTexts, pdfTextItems } from './pdf'
 
 const byTestId = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`)
@@ -15,9 +15,12 @@ async function openPage(page: Page): Promise<Locator> {
   return first
 }
 
-/** Drag a rectangle given in page space (points, top-left origin) on a Letter page. */
+/**
+ * Drag a rectangle given in page space (points, top-left origin) on a Letter page, measured
+ * after the page has re-fit (choosing a tool can open the properties column).
+ */
 async function dragArea(page: Page, pageEl: Locator, from: [number, number], to: [number, number]): Promise<void> {
-  const box = (await pageEl.boundingBox())!
+  const box = await settledBox(pageEl)
   const scale = box.width / 612
   await page.mouse.move(box.x + from[0] * scale, box.y + from[1] * scale)
   await page.mouse.down()

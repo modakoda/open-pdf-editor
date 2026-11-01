@@ -7,7 +7,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib'
-import { ROOT, copyFixture, expect, makeTempDir, mockSaveDialog, test } from './helpers'
+import { ROOT, copyFixture, expect, makeTempDir, mockSaveDialog, settledBox, test } from './helpers'
 import { pdfPageTexts, pdfTextFieldValue } from './pdf'
 
 const FONT_DIR = join(ROOT, 'tests/fixtures/fonts')
@@ -46,7 +46,7 @@ async function firstPage(page: Page) {
 async function typeTextObject(page: Page, text: string, at: { x: number; y: number }) {
   const p0 = await firstPage(page)
   await byTestId(page, 'tool-text').click()
-  const box = (await p0.locator('[data-testid="page-overlay"]').boundingBox())!
+  const box = await settledBox(p0.locator('[data-testid="page-overlay"]'))
   await page.mouse.click(box.x + box.width * at.x, box.y + box.height * at.y)
   const editor = byTestId(page, 'text-object-editor')
   await expect(editor).toBeVisible()

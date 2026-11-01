@@ -298,6 +298,13 @@ export interface ContentEdit {
   color?: Color
   /** Text items: replacement font size in points. */
   fontSize?: number
+  /**
+   * Stacking position among the items of the same content (the page, or the form XObject the
+   * item is in), as a sort key: item i of getContentItems() has the key i, so e.g. 4.5 draws
+   * the item between items 4 and 5. Omitted = its original position. An item sorted above all
+   * others is drawn after all of that content, one sorted below all others before it.
+   */
+  z?: number
 }
 
 /**

@@ -101,3 +101,58 @@ export async function pdfFieldRects(path: string): Promise<Record<string, [numbe
   }
   return out
 }
+
+export type PaintedItem = { kind: 'image'; x: number; y: number } | { kind: 'path'; color: string } | { kind: 'text'; text: string }
+
+/**
+ * What pdf.js paints on one page (0-based), in drawing order: images (with the lower-left
+ * corner of the unit square in PDF space), filled/stroked paths (fill color), text.
+ */
+export async function pdfPaintOrder(path: string, pageIndex: number): Promise<PaintedItem[]> {
+  const lib = await pdfjs()
+  const { OPS } = lib
+  const task = lib.getDocument({
+    data: new Uint8Array(readFileSync(path)),
+    standardFontDataUrl: join(ROOT, 'node_modules/pdfjs-dist/standard_fonts/'),
+    verbosity: 0
+  })
+  const doc = await task.promise
+  try {
+    const list = await (await doc.getPage(pageIndex + 1)).getOperatorList()
+    const out: PaintedItem[] = []
+    type State = { ctm: number[]; fill: string }
+    let st: State = { ctm: [1, 0, 0, 1, 0, 0], fill: '#000000' }
+    const stack: State[] = []
+    const mul = (a: number[], b: number[]) => [
+      a[0] * b[0] + a[1] * b[2],
+      a[0] * b[1] + a[1] * b[3],
+      a[2] * b[0] + a[3] * b[2],
+      a[2] * b[1] + a[3] * b[3],
+      a[4] * b[0] + a[5] * b[2] + b[4],
+      a[4] * b[1] + a[5] * b[3] + b[5]
+    ]
+    const paints = new Set<number>([OPS.fill, OPS.eoFill, OPS.stroke, OPS.fillStroke, OPS.eoFillStroke, OPS.closeStroke, OPS.closeFillStroke, OPS.closeEOFillStroke])
+    for (let i = 0; i < list.fnArray.length; i++) {
+      const fn = list.fnArray[i]
+      const args = list.argsArray[i] as unknown[]
+      if (fn === OPS.save || fn === OPS.paintFormXObjectBegin) {
+        stack.push(st)
+        st = { ...st }
+        const m = fn === OPS.paintFormXObjectBegin ? (args[0] as number[] | null) : null
+        if (m) st.ctm = mul(Array.from(m), st.ctm)
+      } else if (fn === OPS.restore || fn === OPS.paintFormXObjectEnd) st = stack.pop() ?? st
+      else if (fn === OPS.transform) st.ctm = mul(args as number[], st.ctm)
+      else if (fn === OPS.setFillRGBColor) st.fill = String(args[0])
+      else if (fn === OPS.constructPath && paints.has(args[0] as number)) out.push({ kind: 'path', color: st.fill })
+      else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject || fn === OPS.paintImageMaskXObject) {
+        out.push({ kind: 'image', x: st.ctm[4], y: st.ctm[5] })
+      } else if (fn === OPS.showText) {
+        const text = (args[0] as Array<{ unicode?: string } | number>).map((g) => (typeof g === 'object' && g ? (g.unicode ?? '') : '')).join('')
+        if (text.trim()) out.push({ kind: 'text', text })
+      }
+    }
+    return out
+  } finally {
+    await task.destroy()
+  }
+}

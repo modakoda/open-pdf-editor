@@ -166,7 +166,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RENDERER_URL
   delete env.ELECTRON_RUN_AS_NODE
-  Object.assign(env, { OPE_USER_DATA: userDataDir, OPE_E2E: '1' }, options.env)
+  Object.assign(env, { OPE_USER_DATA: userDataDir, OPE_E2E: '1', OPE_HEADLESS: process.env.OPE_SHOW_WINDOWS === '1' ? '0' : '1' }, options.env)
 
   const app = await electron.launch({
     ...(options.executablePath

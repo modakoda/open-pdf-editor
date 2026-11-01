@@ -13,8 +13,9 @@ other PDFs (merge), extract pages to a new file, split into several files.
 
 **Existing content** (Edit content tool): select any text line, image, vector graphic or embedded
 graphic already in the page, then move, resize, rotate, recolor or delete it, or retype text in
-place. Edits change the page itself: deleted or replaced content is removed from the file, not
-covered up.
+place; bring it forward or to the front, send it backward or to the back (Ctrl/Cmd+] and [, with
+Shift for front/back). Edits change the page itself: deleted or replaced content is removed from
+the file, not covered up, and edited content keeps its place in the stacking order.
 
 **Added content**: text (Unicode, with bundled Noto fonts for characters outside WinAnsi), images,
 signatures (drawn or typed), rectangles, ellipses, lines, arrows, freehand ink, highlights,
@@ -47,8 +48,7 @@ drag and drop, "Open With" / file associations, recent files, unsaved-changes pr
 
 - "Whiteout" only covers content visually. To remove sensitive content, delete it with Edit
   content (that removes it from the page), and check the result before sharing.
-- Moved, resized or retyped content is drawn on top of the page's other content. Text retyped
-  with characters the original font lacks uses a similar bundled font.
+- Text retyped with characters the original font lacks uses a similar bundled font.
 - Visible signatures are images; cryptographic digital signatures are not created.
 - Bundled Unicode fonts cover Latin, Greek and Cyrillic. CJK text needs a CJK font (not bundled).
 - When pages from several PDFs with forms are merged, forms of the inserted files are flattened,

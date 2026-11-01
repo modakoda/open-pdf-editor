@@ -44,7 +44,8 @@ function rendererAsset(re: RegExp): { url: string; size: number } | null {
 
 test.describe('app shell', () => {
   test('launches with one window titled "Open PDF Editor"', async ({ launch }) => {
-    const { app, page } = await launch()
+    // The only test that shows its window: it checks that the window really appears.
+    const { app, page } = await launch({ env: { OPE_HEADLESS: '0' } })
     expect(await windowCount(app)).toBe(1)
     await expect.poll(() => windowTitle(app, page)).toBe('Open PDF Editor')
     expect(page.url()).toBe('app://bundle/index.html')

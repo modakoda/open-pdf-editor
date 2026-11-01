@@ -111,7 +111,8 @@ test.describe('close confirmation', () => {
     await setDocumentState(page, { title: 'draft.pdf', dirty: true, hasDocument: true, filePath: null })
     await expect.poll(() => windowTitle(app, page)).toContain('draft.pdf')
     await mockMessageBox(app, 0) // Save
-    await keepRendererBusy(page, 1500)
+    // Long enough for the steps below on a slow CI runner (Windows took > 1.5 s).
+    await keepRendererBusy(page, 6000)
     await closeWindow(app, page)
     await expect.poll(async () => (await dialogCalls(app, 'showMessageBox')).length).toBe(1)
     await new Promise((r) => setTimeout(r, 400))

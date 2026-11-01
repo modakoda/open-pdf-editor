@@ -41,10 +41,6 @@ jobs:
             # Unsigned CI builds are ad-hoc signed so they launch on Apple Silicon.
             builder-args: -c.mac.identity=-
     env:
-      # Downloads (Electron zips, electron-builder tools) are cached between runs.
-      electron_config_cache: ${{ github.workspace }}/.cache/electron
-      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
-      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
       # No signing certificates in CI: never pick up a random keychain identity.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       # Ad-hoc signing (no secrets involved) is fine for pull requests too.
@@ -58,20 +54,25 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Downloads (Electron zips, electron-builder tools) are cached between runs, outside the
+      # checkout: electron-builder runs scripts from its cache, and inside the checkout they would
+      # inherit package.json's "type": "module" and fail.
+      - name: Set download cache paths
+        run: |
+          {
+            echo "electron_config_cache=$RUNNER_TEMP/electron"
+            echo "ELECTRON_CACHE=$RUNNER_TEMP/electron"
+            echo "ELECTRON_BUILDER_CACHE=$RUNNER_TEMP/electron-builder"
+          } >> "$GITHUB_ENV"
+
       - name: Cache Electron downloads
         uses: actions/cache@v4
         with:
           path: |
-            .cache/electron
-            .cache/electron-builder
+            ${{ runner.temp }}/electron
+            ${{ runner.temp }}/electron-builder
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: electron-${{ runner.os }}-
-
-      # The caches sit inside the repository, whose package.json says "type": "module": mark them
-      # CommonJS so the tools electron-builder downloads there (icon-tool.js) can run.
-      - name: Mark the download caches as CommonJS
-        shell: bash
-        run: mkdir -p .cache && echo '{ "type": "commonjs" }' > .cache/package.json
 
       - name: Install dependencies
         run: npm ci

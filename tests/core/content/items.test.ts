@@ -14,6 +14,7 @@ import {
   pdfjsText,
   type PdfjsTextItem
 } from './helpers'
+import { timeBudget } from '../helpers'
 import {
   makeCroppedPdf,
   makeDifferencesPdf,
@@ -445,6 +446,6 @@ describe('performance', () => {
     const items = listContentItems(doc, page, visibleBox(page))
     const ms = performance.now() - t0
     expect(items.length).toBe(10000)
-    expect(ms).toBeLessThan(700)
+    expect(ms).toBeLessThan(timeBudget(700))
   })
 })

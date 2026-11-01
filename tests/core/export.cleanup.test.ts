@@ -19,7 +19,7 @@ import {
   makeTaggedSecretPdf,
   makeTextPdf
 } from '../fixtures/pdfs'
-import { OPS, allPagesText, allStreamsText, closePdfjs, hexText, openWithPdfjs, pageAnnotations, registerTestFonts } from './helpers'
+import { OPS, allPagesText, allStreamsText, closePdfjs, hexText, openWithPdfjs, pageAnnotations, registerTestFonts, timeBudget } from './helpers'
 
 beforeAll(() => registerTestFonts())
 
@@ -206,10 +206,8 @@ describe('large forms stay fast (finding 12)', () => {
     t = performance.now()
     const out = await exportDocument(deletePages(doc, [doc.pages[0].id]))
     const exportMs = performance.now() - t
-    // Shared CI runners (Windows above all) run this several times slower than a developer machine.
-    const slack = process.env.CI ? 3 : 1
-    expect(loadMs).toBeLessThan(3000 * slack)
-    expect(exportMs).toBeLessThan(6000 * slack)
+    expect(loadMs).toBeLessThan(timeBudget(3000))
+    expect(exportMs).toBeLessThan(timeBudget(6000))
     const re = await loadSource(out, 'o.pdf')
     expect(re.pageCount).toBe(199)
     expect(re.formFields).toHaveLength(1990)

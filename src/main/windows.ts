@@ -11,6 +11,8 @@ import { nextWindowBounds, saveWindowState } from './windowState'
 
 /** How long a window counts as "busy opening a file" after one was sent to it. */
 const PENDING_OPEN_MS = 10_000
+/** Test runs: never show windows on screen (see tests/e2e/helpers.ts). */
+const HEADLESS = process.env.OPE_HEADLESS === '1'
 
 export interface WindowContext {
   readonly id: number
@@ -147,6 +149,8 @@ class WindowManager {
       minWidth: 640,
       minHeight: 480,
       show: false,
+      // OPE_HEADLESS=1 (e2e tests): windows stay hidden, so hidden pages must not be throttled.
+      ...(HEADLESS ? { paintWhenInitiallyHidden: true } : {}),
       title: PRODUCT_NAME,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#1f1f1f' : '#ffffff',
       ...(process.platform === 'linux' ? { icon: iconPath } : {}),
@@ -160,7 +164,8 @@ class WindowManager {
         allowRunningInsecureContent: false,
         webviewTag: false,
         spellcheck: false,
-        navigateOnDragDrop: false
+        navigateOnDragDrop: false,
+        backgroundThrottling: !HEADLESS
       }
     })
     const ctx: WindowContext = {
@@ -185,7 +190,7 @@ class WindowManager {
     const show = () => {
       if (shown || win.isDestroyed()) return
       shown = true
-      win.show()
+      if (!HEADLESS) win.show()
     }
     win.once('ready-to-show', show)
     setTimeout(show, 3000)
@@ -278,6 +283,7 @@ class WindowManager {
     const { win } = ctx
     if (win.isDestroyed()) return
     if (win.isMinimized()) win.restore()
+    if (HEADLESS) return
     if (!win.isVisible()) win.show()
     win.focus()
   }

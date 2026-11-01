@@ -308,20 +308,26 @@ export async function dialogCalls(app: ElectronApplication, method?: string): Pr
 // Windows and menu
 
 /**
- * Bounding box of `locator` once the layout stops changing. Choosing a tool opens its options
- * panel, and in a narrow window (1024 px CI screens) the page re-fits its zoom a moment later:
- * coordinates measured before that miss the page.
+ * Bounding box of `locator` once the layout stops changing. Below 1100 px (CI screens are 1024
+ * px wide) the properties column appears when a tool with options is chosen or something is
+ * selected, and the page re-fits its zoom on a later frame (ResizeObserver): coordinates measured
+ * before that miss. Hidden windows on Windows CI draw frames slowly, so this counts frames
+ * rather than milliseconds.
  */
 export async function settledBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  const page = locator.page()
+  const twoFrames = () => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
   const same = (a: object | null, b: object | null) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b)
   let last = await locator.boundingBox()
-  for (let i = 0; i < 50; i++) {
-    await locator.page().waitForTimeout(100)
+  let stable = 0
+  for (let i = 0; i < 50 && stable < 3; i++) {
+    await twoFrames()
     const box = await locator.boundingBox()
-    if (same(box, last)) return box!
+    stable = same(box, last) ? stable + 1 : 0
     last = box
   }
-  throw new Error('layout did not settle')
+  if (stable < 3 || !last) throw new Error('layout did not settle')
+  return last
 }
 
 export async function windowCount(app: ElectronApplication): Promise<number> {

@@ -278,13 +278,28 @@ describe('optional content', () => {
     ]
     const out = await edit(bytes, edits)
     const content = await pageContent(out, 0)
-    const blocks = content.slice(content.indexOf('\nQ\n/OC') + 3)
-    expect(blocks.match(/^\/OC \/ocOn BDC\nq\n/gm)?.length).toBe(2)
-    expect(blocks.match(/^EMC$/gm)?.length).toBe(2)
+    // Both are redrawn in place, inside their layer's section.
+    const start = content.indexOf('/OC /ocOn BDC')
+    const layer = content.slice(start, content.indexOf('EMC', start))
+    expect(layer).toContain('1 0 0 1 0 -50 cm')
+    expect(layer).toContain('0 1 0 rg\nBT')
+    expect(content.match(/\bBDC\b/g)?.length).toBe(content.match(/\bEMC\b/g)?.length)
     // The hidden layer is still hidden and its content untouched.
     expect(content).toContain('/OC /ocOff BDC 1 0 0 rg 300 600 100 40 re f BT /F1 12 Tf 300 580 Td (Draft layer) Tj ET EMC')
     const after = await listItems(out)
-    expect(after.map((i) => i.text ?? i.kind)).toEqual(['Always', 'Shown layer', 'path'])
+    expect(after.map((i) => i.text ?? i.kind)).toEqual(['Always', 'path', 'Shown layer'])
+  })
+
+  it('keeps blocks drawn at the end in their layer', async () => {
+    const bytes = await ocPdf()
+    const items = await listItems(bytes)
+    const shown = items.find((i) => i.text === 'Shown layer')!
+    // Sorted above everything: drawn after the page content.
+    const out = await edit(bytes, [{ itemId: shown.id, z: items.length }])
+    const content = await pageContent(out, 0)
+    expect(content).toMatch(/\nQ\n\/OC \/ocOn BDC\nq\n[^]*\(Shown layer\) Tj\nET\nQ\nEMC\n$/)
+    const after = await listItems(out)
+    expect(after.map((i) => i.text ?? i.kind)).toEqual(['Always', 'path', 'Shown layer'])
   })
 })
 

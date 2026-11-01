@@ -31,9 +31,10 @@ describe('content engine: misc behaviour', () => {
     await applyContentEdits(doc, page, visibleBox(page), [{ itemId: items[0].id, transform: [1, 0, 0, 1, 10, 0] }], testHelpers(doc))
     page.drawText('Drawn later', { x: 20, y: 200, size: 12, font, color: rgb(1, 0, 0) })
     const pj = await pdfjsText(await doc.save())
+    // The moved item keeps its place in the stacking order.
     expect(pj.map((p) => [p.str, Math.round(p.x)])).toEqual([
-      ['Keep', 20],
       ['Fresh', 30],
+      ['Keep', 20],
       ['Drawn later', 20]
     ])
   })

@@ -3,6 +3,7 @@ import { PDFDocument, PDFName, StandardFonts, rgb } from '@cantoo/pdf-lib'
 import { applyContentEdits, listContentItems } from '../../../src/core/content'
 import { visibleBox } from '../../../src/core/pdf'
 import { addStdFont, byText, edit, listItems, pdfFromContent, pdfjsText, testHelpers } from './helpers'
+import { timeBudget } from '../helpers'
 import { bigContent, makeFormWrappedPdf } from './fixtures'
 
 describe('content engine: misc behaviour', () => {
@@ -109,7 +110,7 @@ describe('content engine: misc behaviour', () => {
       .map((it, i) => (i % 2 ? { itemId: it.id, deleted: true } : { itemId: it.id, transform: [1, 0, 0, 1, 5, 5] as [number, number, number, number, number, number] }))
     const t0 = performance.now()
     await applyContentEdits(doc, page, visibleBox(page), edits, testHelpers(doc))
-    expect(performance.now() - t0).toBeLessThan(2000)
+    expect(performance.now() - t0).toBeLessThan(timeBudget(2000))
     const after = listContentItems(doc, page, visibleBox(page))
     expect(after.length).toBe(items.length - edits.length / 2)
     const moved = byText(after, items[0].text!)

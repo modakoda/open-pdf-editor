@@ -34,6 +34,14 @@ export function registerTestFonts(): void {
   registerFonts(loadFontAssets())
 }
 
+/**
+ * Wall-clock budget for a performance check. Shared CI runners (Windows above all) run several
+ * times slower than a developer machine; the budgets only have to catch pathological slowdowns.
+ */
+export function timeBudget(ms: number): number {
+  return process.env.CI ? ms * 4 : ms
+}
+
 const tasks = new WeakMap<object, { destroy(): Promise<void> }>()
 
 export async function openWithPdfjs(bytes: Uint8Array, password?: string) {

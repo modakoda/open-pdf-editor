@@ -7,6 +7,9 @@ import { ROOT } from './helpers'
 
 type PdfJs = typeof import('pdfjs-dist')
 
+// pdf.js wants a trailing '/', which join() would turn into '\' on Windows.
+const STANDARD_FONT_DATA_URL = join(ROOT, 'node_modules/pdfjs-dist/standard_fonts') + '/'
+
 let pdfjsPromise: Promise<PdfJs> | null = null
 function pdfjs(): Promise<PdfJs> {
   pdfjsPromise ??= import(pathToFileURL(join(ROOT, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs')).href) as Promise<PdfJs>
@@ -18,7 +21,7 @@ export async function pdfPageTexts(path: string): Promise<string[]> {
   const lib = await pdfjs()
   const task = lib.getDocument({
     data: new Uint8Array(readFileSync(path)),
-    standardFontDataUrl: join(ROOT, 'node_modules/pdfjs-dist/standard_fonts/'),
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
     verbosity: 0
   })
   const doc = await task.promise
@@ -64,7 +67,7 @@ export async function pdfTextItems(path: string, pageIndex: number): Promise<Pdf
   const lib = await pdfjs()
   const task = lib.getDocument({
     data: new Uint8Array(readFileSync(path)),
-    standardFontDataUrl: join(ROOT, 'node_modules/pdfjs-dist/standard_fonts/'),
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
     verbosity: 0
   })
   const doc = await task.promise
@@ -113,7 +116,7 @@ export async function pdfPaintOrder(path: string, pageIndex: number): Promise<Pa
   const { OPS } = lib
   const task = lib.getDocument({
     data: new Uint8Array(readFileSync(path)),
-    standardFontDataUrl: join(ROOT, 'node_modules/pdfjs-dist/standard_fonts/'),
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
     verbosity: 0
   })
   const doc = await task.promise

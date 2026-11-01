@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test'
 import { signPdf, verifyPdfSignatures } from '../../src/core/signatures'
 import { loadPkcs12 } from '../../src/core/signatures/pkcs12'
 import { createCertificate, createPkcs12, testKey } from '../core/signatures/certs'
-import { copyFixture, expect, makeTempDir, mockOpenDialog, mockSaveDialog, test } from './helpers'
+import { copyFixture, expect, makeTempDir, mockOpenDialog, mockSaveDialog, settledBox, test } from './helpers'
 
 const byTestId = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`)
 const PASSWORD = 'e2e-secret'
@@ -60,7 +60,7 @@ test.describe('digital signatures', () => {
     const layer = page.locator('[data-testid="page"][data-page-index="0"] [data-testid="signature-placement"]')
     await expect(layer).toBeVisible()
     await mockSaveDialog(app, out)
-    const area = (await layer.boundingBox())!
+    const area = await settledBox(layer)
     await page.mouse.move(area.x + 60, area.y + 80)
     await page.mouse.down()
     await page.mouse.move(area.x + 200, area.y + 120, { steps: 4 })

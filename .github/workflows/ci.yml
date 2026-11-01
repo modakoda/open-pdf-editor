@@ -67,6 +67,12 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: electron-${{ runner.os }}-
 
+      # The caches sit inside the repository, whose package.json says "type": "module": mark them
+      # CommonJS so the tools electron-builder downloads there (icon-tool.js) can run.
+      - name: Mark the download caches as CommonJS
+        shell: bash
+        run: mkdir -p .cache && echo '{ "type": "commonjs" }' > .cache/package.json
+
       - name: Install dependencies
         run: npm ci
 

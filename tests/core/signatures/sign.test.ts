@@ -160,11 +160,12 @@ describe('signPdf', () => {
     expect(t1.digestValid).toBe(false)
 
     // Flip a byte of the signature value (last non-zero hex digit pair of /Contents).
+    // The hex is lowercase, so swap digits ('0' ↔ '1'): writing 'A' over an 'a' would change nothing.
     const br = independentlyVerify(signed).byteRange
     const hex = text.slice(br[1] + 1, br[2] - 1).replace(/0+$/, '')
     const pos = br[1] + 1 + hex.length - 4
     const badSig = signed.slice()
-    badSig[pos] = badSig[pos] === 0x41 ? 0x42 : 0x41
+    badSig[pos] = badSig[pos] === 0x30 ? 0x31 : 0x30
     const [t2] = await verifyPdfSignatures(badSig)
     expect(t2.status).toBe('invalid')
     expect(t2.signatureValid).toBe(false)

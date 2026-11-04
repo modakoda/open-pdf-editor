@@ -1,0 +1,83 @@
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--statusbar-h);
+  padding: 0 12px;
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+  font-size: 12px;
+  user-select: none;
+  white-space: nowrap;
+}
+.statusbar-section {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.statusbar-right {
+  justify-content: flex-end;
+}
+.statusbar-muted {
+  color: var(--fg-muted);
+}
+.statusbar-pages {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.statusbar-page-button {
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  cursor: text;
+}
+.statusbar-page-button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--bg);
+}
+.statusbar-page-input {
+  width: 46px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: 12px;
+  text-align: center;
+}
+.statusbar-page-input:focus {
+  outline: none;
+}
+.statusbar-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 36vw;
+}
+.statusbar-dirty {
+  color: var(--fg-subtle);
+}
+.statusbar-zoom {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.statusbar-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.statusbar-busy .spinner {
+  width: 11px;
+  height: 11px;
+}

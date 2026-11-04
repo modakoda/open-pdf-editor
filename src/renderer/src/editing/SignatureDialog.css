@@ -1,0 +1,166 @@
+.ed-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.ed-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+}
+
+.ed-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ed-dialog-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ed-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ed-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.ed-btn:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+.ed-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ed-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.ed-btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.ed-segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.ed-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.ed-segmented button.active {
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+.ed-signature-pad {
+  display: block;
+  max-width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  /* Always light: the signature is drawn in dark ink. */
+  background: #ffffff;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.ed-signature-type {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 480px;
+  max-width: 100%;
+}
+.ed-signature-type input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.ed-signature-preview {
+  display: flex;
+  align-items: center;
+  height: 110px;
+  padding: 0 16px;
+  overflow: hidden;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  font-size: 48px;
+  white-space: nowrap;
+}
+
+.ed-signature-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ed-signature-width {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+}
+.ed-signature-controls .ed-btn {
+  margin-left: auto;
+}
+
+.ed-swatches {
+  display: inline-flex;
+  gap: 6px;
+}
+.ed-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid var(--bg-elevated);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.ed-swatch.active {
+  box-shadow: 0 0 0 2px var(--accent);
+}

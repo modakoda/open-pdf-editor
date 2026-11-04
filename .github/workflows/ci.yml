@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            run: xvfb-run -a
+            packaged: release/linux-unpacked/open-pdf-editor
+          - name: Windows
+            os: windows-latest
+            run: ''
+            packaged: release/win-unpacked/Open PDF Editor.exe
+          - name: macOS
+            os: macos-latest
+            run: ''
+            packaged: release/mac-arm64/Open PDF Editor.app/Contents/MacOS/Open PDF Editor
+            # Unsigned CI builds are ad-hoc signed so they launch on Apple Silicon.
+            builder-args: -c.mac.identity=-
+    env:
+      # No signing certificates in CI: never pick up a random keychain identity.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # Ad-hoc signing (no secrets involved) is fine for pull requests too.
+      CSC_FOR_PULL_REQUEST: 'true'
+      FORCE_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      # Downloads (Electron zips, electron-builder tools) are cached between runs, outside the
+      # checkout: electron-builder runs scripts from its cache, and inside the checkout they would
+      # inherit package.json's "type": "module" and fail.
+      - name: Set download cache paths
+        run: |
+          {
+            echo "electron_config_cache=$RUNNER_TEMP/electron"
+            echo "ELECTRON_CACHE=$RUNNER_TEMP/electron"
+            echo "ELECTRON_BUILDER_CACHE=$RUNNER_TEMP/electron-builder"
+          } >> "$GITHUB_ENV"
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/electron
+            ${{ runner.temp }}/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      # npm blocks dependency install scripts by default and Electron fetches its binary lazily:
+      # download it explicitly (from the cache when possible).
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Allow the Chromium sandbox (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which Chromium's sandbox needs.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and component tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate test fixtures
+        run: npm run fixtures
+
+      - name: E2E tests
+        run: ${{ matrix.run }} npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.name }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Package installers
+        run: npx electron-builder --publish never ${{ matrix.builder-args }}
+
+      - name: Check update metadata
+        run: node scripts/check-update-metadata.mjs
+
+      - name: Smoke-test the packaged app
+        env:
+          OPE_PACKAGED_APP: ${{ matrix.packaged }}
+        # packaged.spec.ts and packaged-updates.spec.ts
+        run: ${{ matrix.run }} npx playwright test packaged
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
+            release/latest*.yml
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

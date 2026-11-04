@@ -1,0 +1,145 @@
+.toolbar-area {
+  container-type: inline-size;
+  container-name: toolbar;
+  flex: none;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 8px;
+  min-height: var(--toolbar-h);
+  padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.toolbar-center {
+  flex: 1 1 auto;
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  margin: 0 5px;
+  background: var(--border);
+  flex: none;
+}
+
+.zoom-level {
+  min-width: 56px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.zoom-level:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.zoom-level:disabled {
+  color: var(--fg-subtle);
+  cursor: default;
+}
+
+.subbar {
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--subbar-h);
+  padding: 0 8px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subbar::-webkit-scrollbar {
+  display: none;
+}
+.subbar .icon-btn {
+  height: 28px;
+}
+.subbar-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+}
+.subbar-title {
+  margin: 0 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.subbar .icon-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Labels go first in the Document group (its buttons have tooltips), then everywhere. */
+@container (max-width: 1400px) {
+  .subbar-group.labels-first .icon-btn-label {
+    display: none;
+  }
+  .subbar-group.labels-first .icon-btn.with-label {
+    padding: 0 6px;
+  }
+}
+@container (max-width: 1020px) {
+  .subbar .icon-btn-label {
+    display: none;
+  }
+  .subbar .icon-btn.with-label {
+    padding: 0 6px;
+  }
+}
+@container (max-width: 520px) {
+  .subbar-title {
+    display: none;
+  }
+}
+
+/* Narrow windows: the editing tools move to their own row. */
+@container toolbar (max-width: 1120px) {
+  .toolbar {
+    justify-content: space-between;
+  }
+  .toolbar-group {
+    height: var(--toolbar-h);
+  }
+  .toolbar-center {
+    order: 3;
+    flex-basis: 100%;
+    height: 40px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .toolbar-center:empty {
+    display: none;
+  }
+}

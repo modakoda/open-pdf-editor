@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open PDF Editor</title>
+<meta name="description" content="A free, open-source desktop PDF editor for Windows, macOS and Linux. Retype existing text, redact for real, fill forms, run OCR and sign with a certificate. Your files never leave your computer.">
+<meta property="og:title" content="Open PDF Editor — the PDF editor that edits the PDF">
+<meta property="og:description" content="Free and open source. Retype existing text, redact for real, fill forms and sign with a certificate. Windows, macOS and Linux.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://modakoda.github.io/open-pdf-editor/screenshots/edit-content.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#D3263A">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  // Apply a saved theme before first paint.
+  try { const t = localStorage.getItem('ope-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t } catch {}
+  document.documentElement.classList.add('js')
+</script>
+<style>
+  :root {
+    --bg: #faf8f5;
+    --bg-alt: #f3efe9;
+    --surface: #ffffff;
+    --ink: #14161c;
+    --ink-2: #3a3f4a;
+    --muted: #6a707c;
+    --line: #e6e1d9;
+    --line-strong: #d6d0c6;
+    --brand: #d3263a;
+    --brand-hi: #ff6a55;
+    --brand-ink: #b81f31;
+    --brand-soft: #fbe8e5;
+    --gold: #f2b533;
+    --frame: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(20, 22, 28, .06), 0 2px 8px rgba(20, 22, 28, .05);
+    --shadow-lg: 0 2px 4px rgba(20, 22, 28, .04), 0 24px 60px -12px rgba(60, 20, 20, .22);
+    --sans: Geist, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --wrap: 1180px;
+    --gutter: clamp(16px, 4vw, 40px);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101216; --bg-alt: #15181e; --surface: #1b1f26; --ink: #f1efea; --ink-2: #c9ccd2; --muted: #8d94a0;
+      --line: #262b33; --line-strong: #353b45; --brand: #ff6a55; --brand-hi: #ff8a73; --brand-ink: #ff8a73;
+      --brand-soft: rgba(255, 106, 85, .12); --frame: #23272f;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-lg: 0 30px 80px -20px rgba(0, 0, 0, .7);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101216; --bg-alt: #15181e; --surface: #1b1f26; --ink: #f1efea; --ink-2: #c9ccd2; --muted: #8d94a0;
+    --line: #262b33; --line-strong: #353b45; --brand: #ff6a55; --brand-hi: #ff8a73; --brand-ink: #ff8a73;
+    --brand-soft: rgba(255, 106, 85, .12); --frame: #23272f;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-lg: 0 30px 80px -20px rgba(0, 0, 0, .7);
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+  .icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---- Nav ---- */
+  .nav {
+    position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid transparent; transition: border-color .2s;
+  }
+  .nav.scrolled { border-bottom-color: var(--line); }
+  .nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; letter-spacing: -.025em; }
+  .brand img { width: 30px; height: 30px; }
+  .nav-links { display: flex; gap: 24px; margin-left: auto; }
+  .nav-links a { text-decoration: none; color: var(--muted); font-size: 15px; font-weight: 500; }
+  .nav-links a:hover { color: var(--ink); }
+  .nav-actions { display: flex; gap: 8px; align-items: center; }
+  .icon-btn {
+    display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); cursor: pointer; text-decoration: none;
+  }
+  .icon-btn:hover { border-color: var(--line-strong); }
+  .theme-btn .moon { display: none; }
+  :root[data-theme="dark"] .theme-btn .sun { display: none; }
+  :root[data-theme="dark"] .theme-btn .moon { display: block; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .theme-btn .sun { display: none; }
+    :root:not([data-theme="light"]) .theme-btn .moon { display: block; }
+  }
+  @media (max-width: 760px) { .nav-links { display: none; } .nav-actions { margin-left: auto; } }
+
+  /* ---- Buttons ---- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; height: 52px; padding: 0 22px; border-radius: 12px;
+    font: 600 16px/1 var(--sans); text-decoration: none; cursor: pointer; border: 1px solid transparent; white-space: nowrap;
+    transition: transform .15s, box-shadow .15s, background-color .15s;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary {
+    color: #fff; background: linear-gradient(180deg, #ff6a55, #d3263a);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 8px 24px -8px rgba(211, 38, 58, .6);
+  }
+  .btn-primary:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 12px 30px -8px rgba(211, 38, 58, .75); }
+  .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
+  .btn-ghost:hover { border-color: var(--muted); }
+  .btn small { font-weight: 500; opacity: .8; font-size: 13px; }
+
+  /* ---- Hero ---- */
+  .hero { position: relative; padding: clamp(48px, 9vw, 104px) 0 0; text-align: center; overflow: hidden; }
+  .hero::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px; mask-image: radial-gradient(ellipse 70% 60% at 50% 20%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 20%, #000 30%, transparent 75%);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); font-size: 14px; color: var(--ink-2); box-shadow: var(--shadow-sm); position: relative;
+  }
+  .pill b { font: 500 11px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: #fff; background: var(--brand); padding: 5px 8px; border-radius: 999px; }
+  h1 {
+    font: 700 clamp(42px, 6.8vw, 88px)/1.05 var(--sans); letter-spacing: -.045em; margin: 28px auto 0; max-width: 12.5em; position: relative;
+    text-wrap: balance;
+  }
+  h1 em {
+    font-style: normal; position: relative; white-space: nowrap;
+    background: linear-gradient(180deg, var(--brand-hi), var(--brand)); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 em svg { position: absolute; left: 0; bottom: -.05em; width: 100%; height: .16em; overflow: visible; }
+  h1 em path { stroke: var(--brand); stroke-width: 5; fill: none; stroke-linecap: round; stroke-dasharray: 400; stroke-dashoffset: 400; animation: draw 1.1s .5s cubic-bezier(.6, 0, .2, 1) forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { h1 em path { animation: none; stroke-dashoffset: 0; } }
+  .lede { max-width: 640px; margin: 26px auto 0; font-size: clamp(17px, 2vw, 20px); color: var(--ink-2); position: relative; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 36px; position: relative; }
+  .cta-note { margin-top: 16px; font-size: 14px; color: var(--muted); position: relative; }
+  .cta-note a { color: var(--muted); }
+  .cta-note a:hover { color: var(--ink); }
+
+  .showcase { position: relative; margin: clamp(48px, 7vw, 80px) auto 0; max-width: 1120px; }
+  .showcase::before {
+    content: ''; position: absolute; left: 10%; right: 10%; top: 8%; bottom: -10%; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255, 106, 85, .35), transparent); filter: blur(40px); z-index: -1;
+  }
+  .window {
+    border-radius: 14px; background: var(--frame); border: 1px solid var(--line-strong); box-shadow: var(--shadow-lg); overflow: hidden;
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-bottom: 1px solid var(--line);
+    font-size: 12.5px; color: var(--muted);
+  }
+  .window-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-strong); }
+  .window-bar span { margin: 0 auto; transform: translateX(-20px); }
+  .window img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+  .hero .showcase { margin-bottom: -1px; }
+  .hero .window { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; }
+  .callout {
+    position: absolute; display: flex; gap: 10px; align-items: flex-start; max-width: 250px; text-align: left; padding: 12px 14px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); font-size: 13.5px; line-height: 1.45; color: var(--ink-2);
+  }
+  .callout strong { display: block; color: var(--ink); font-size: 14px; }
+  .callout .dot { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+  .callout .dot .icon { width: 15px; height: 15px; }
+  .callout.c1 { left: -48px; top: 31%; }
+  .callout.c2 { right: -40px; top: 52%; }
+  @media (max-width: 1240px) { .callout.c1 { left: 12px; } .callout.c2 { right: 12px; } }
+  @media (max-width: 900px) { .callout { display: none; } }
+
+  /* ---- Proof strip ---- */
+  .proof { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); position: relative; }
+  .proof ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); }
+  .proof li { padding: 26px 24px; display: flex; gap: 14px; align-items: flex-start; }
+  .proof li + li { border-left: 1px solid var(--line); }
+  .proof .icon { color: var(--brand); margin-top: 3px; }
+  .proof strong { display: block; font-size: 16px; }
+  .proof span { font-size: 14px; color: var(--muted); line-height: 1.45; display: block; margin-top: 2px; }
+  @media (max-width: 900px) {
+    .proof ul { grid-template-columns: 1fr 1fr; }
+    .proof li:nth-child(3) { border-left: 0; }
+    .proof li:nth-child(n+3) { border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 520px) { .proof ul { grid-template-columns: 1fr; } .proof li + li { border-left: 0; border-top: 1px solid var(--line); } .proof li { padding: 18px 4px; } }
+
+  /* ---- Sections ---- */
+  section { padding: clamp(72px, 10vw, 128px) 0; }
+  .kicker { font: 500 12.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--brand); }
+  h2 { font: 700 clamp(32px, 4.4vw, 54px)/1.06 var(--sans); letter-spacing: -.04em; margin: 16px 0 0; text-wrap: balance; }
+  h2 em { font-style: normal; color: var(--brand); }
+  .section-head { max-width: 720px; }
+  .section-head p { color: var(--ink-2); font-size: 18px; margin: 20px 0 0; }
+  .center { text-align: center; margin-left: auto; margin-right: auto; }
+
+  .feature { display: grid; grid-template-columns: 5fr 7fr; gap: clamp(32px, 6vw, 80px); align-items: center; margin-top: clamp(64px, 9vw, 112px); }
+  .feature.flip { grid-template-columns: 7fr 5fr; }
+  .feature.flip .feature-text { order: 2; }
+  .num { font: 500 13px/1 var(--mono); color: var(--muted); display: flex; align-items: center; gap: 12px; }
+  .num::after { content: ''; height: 1px; width: 48px; background: var(--line-strong); }
+  h3 { font: 650 clamp(26px, 2.6vw, 34px)/1.15 var(--sans); letter-spacing: -.035em; margin: 18px 0 0; text-wrap: balance; }
+  .feature-text > p { color: var(--ink-2); margin: 16px 0 0; }
+  .checks { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px; }
+  .checks li { display: flex; gap: 12px; font-size: 16px; color: var(--ink-2); line-height: 1.5; }
+  .checks .icon { width: 18px; height: 18px; color: var(--brand); margin-top: 3px; stroke-width: 2.4; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .chip { font: 500 12px/1 var(--mono); padding: 7px 10px; border-radius: 7px; background: var(--bg-alt); border: 1px solid var(--line); color: var(--ink-2); }
+  @media (max-width: 900px) {
+    .feature, .feature.flip { grid-template-columns: 1fr; }
+    .feature.flip .feature-text { order: 0; }
+  }
+
+  /* Cropped screenshot: --s scales around (--ox, --oy) to frame one part of the app. */
+  .crop { position: relative; display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; text-align: left; font: inherit; color: inherit; }
+  .crop .window { position: relative; display: block; }
+  .crop .viewport { display: block; overflow: hidden; aspect-ratio: 16 / 10; }
+  .crop .viewport img { width: 100%; height: 100%; object-fit: cover; transform: scale(var(--s, 1)); transform-origin: var(--ox, 50%) var(--oy, 50%); transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
+  .crop:hover .viewport img { transform: scale(calc(var(--s, 1) * 1.025)); }
+  .crop .zoom-hint {
+    position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-radius: 8px;
+    background: rgba(20, 22, 28, .78); color: #fff; font-size: 12.5px; opacity: 0; transform: translateY(4px); transition: .2s;
+  }
+  .crop:hover .zoom-hint, .crop:focus-visible .zoom-hint { opacity: 1; transform: none; }
+  .crop .zoom-hint .icon { width: 14px; height: 14px; }
+
+  /* ---- Everything grid ---- */
+  .alt { background: var(--bg-alt); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 56px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 26px; transition: transform .2s, box-shadow .2s, border-color .2s; }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); border-color: var(--line-strong); }
+  .card .badge { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+  .card h4 { margin: 18px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+  .card p { margin: 8px 0 0; font-size: 15px; color: var(--muted); line-height: 1.55; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ---- Privacy band (always dark) ---- */
+  .privacy { background: #0f1115; color: #f1efea; position: relative; overflow: hidden; }
+  .privacy::before {
+    content: ''; position: absolute; width: 720px; height: 720px; right: -200px; top: -260px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255, 106, 85, .22), transparent); pointer-events: none;
+  }
+  .privacy .kicker { color: #ff8a73; }
+  .privacy h2 em { color: #ff8a73; }
+  .privacy .section-head p { color: #b9bdc6; }
+  .privacy-grid { display: grid; grid-template-columns: 6fr 5fr; gap: clamp(32px, 6vw, 80px); align-items: center; position: relative; }
+  .facts { display: grid; gap: 22px; margin-top: 40px; }
+  .fact { display: flex; gap: 16px; }
+  .fact .icon { color: #ff8a73; margin-top: 4px; }
+  .fact strong { display: block; font-size: 16px; }
+  .fact span { color: #9ca2ad; font-size: 15px; line-height: 1.55; }
+  .machine {
+    border: 1.5px dashed #3a404b; border-radius: 22px; padding: 26px; position: relative; background: rgba(255, 255, 255, .02);
+  }
+  .machine-label { position: absolute; top: -11px; left: 22px; padding: 0 10px; background: #0f1115; font: 500 12px/22px var(--mono); color: #9ca2ad; letter-spacing: .04em; text-transform: uppercase; }
+  .flow { display: grid; gap: 10px; }
+  .node { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; background: #1a1d24; border: 1px solid #2a2f38; font-size: 15px; }
+  .node small { margin-left: auto; font: 500 11.5px/1 var(--mono); color: #8d94a0; }
+  .node.app { background: linear-gradient(180deg, rgba(255, 106, 85, .16), rgba(211, 38, 58, .1)); border-color: rgba(255, 106, 85, .4); }
+  .node img { width: 26px; height: 26px; }
+  .node .icon { color: #9ca2ad; }
+  .arrow { justify-self: center; width: 2px; height: 18px; background: linear-gradient(#3a404b, #ff6a55); border-radius: 2px; }
+  .tasks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tasks span { font: 500 11.5px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, .05); color: #c9ccd2; }
+  .cloud { display: flex; align-items: center; gap: 12px; margin-top: 20px; color: #8d94a0; font-size: 14px; }
+  .cloud .icon { color: #ff8a73; }
+  @media (max-width: 900px) { .privacy-grid { grid-template-columns: 1fr; } }
+
+  /* ---- Theme compare ---- */
+  .compare-wrap { display: grid; grid-template-columns: 5fr 7fr; gap: clamp(32px, 6vw, 72px); align-items: center; }
+  .compare { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--line-strong); box-shadow: var(--shadow-lg); aspect-ratio: 16 / 10; user-select: none; }
+  .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .compare .top { clip-path: inset(0 0 0 var(--pos, 50%)); }
+  .compare .handle { position: absolute; top: 0; bottom: 0; left: var(--pos, 50%); width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); pointer-events: none; }
+  .compare .handle::after {
+    content: ''; position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2314161c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18-6-6 6-6'/%3E%3Cpath d='m15 6 6 6-6 6'/%3E%3C/svg%3E") center / 20px no-repeat;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .3);
+  }
+  .compare input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: ew-resize; margin: 0; }
+  .compare .tag { position: absolute; top: 14px; font: 500 11.5px/1 var(--mono); padding: 6px 9px; border-radius: 6px; background: rgba(20, 22, 28, .75); color: #fff; letter-spacing: .04em; text-transform: uppercase; pointer-events: none; }
+  .compare .tag.l { left: 14px; } .compare .tag.r { right: 14px; }
+  .compare:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 3px; }
+  .platforms { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 24px; }
+  @media (max-width: 900px) { .compare-wrap { grid-template-columns: 1fr; } }
+
+  /* ---- Download ---- */
+  .download { text-align: center; position: relative; }
+  .download .lead-in { display: inline-grid; place-items: center; width: 84px; height: 84px; margin-bottom: 8px; }
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 52px; text-align: left; }
+  .dl { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; position: relative; }
+  .dl.current { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .dl .yours { position: absolute; top: -11px; left: 24px; font: 500 11px/22px var(--mono); padding: 0 9px; border-radius: 999px; background: var(--brand); color: #fff; letter-spacing: .04em; text-transform: uppercase; display: none; }
+  .dl.current .yours { display: block; }
+  .dl h3 { font-size: 26px; margin: 0; }
+  .dl .arch { color: var(--muted); font-size: 14.5px; margin: 6px 0 22px; }
+  .dl .btn { justify-content: center; height: 48px; font-size: 15px; }
+  .dl .btn-ghost { background: transparent; }
+  .dl:not(.current) .btn-primary { background: var(--ink); color: var(--bg); box-shadow: none; }
+  .dl .more { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 16px; font-size: 14px; }
+  .dl .more a { color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--line-strong); }
+  .dl .more a:hover { color: var(--ink); border-color: var(--ink); }
+  .release-meta { margin-top: 22px; font-size: 14px; color: var(--muted); }
+  .release-meta a { color: var(--muted); }
+  @media (max-width: 900px) { .downloads { grid-template-columns: 1fr; } }
+
+  .source { margin: 56px auto 0; max-width: 680px; text-align: left; border-radius: 16px; overflow: hidden; border: 1px solid #262b33; background: #13161b; color: #e6e3dd; }
+  .source-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 10px 18px; border-bottom: 1px solid #262b33; font: 500 12.5px/1 var(--mono); color: #8d94a0; }
+  .copy { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #2f343e; background: #1b1f26; color: #c9ccd2; border-radius: 8px; padding: 6px 10px; font: 500 12px/1 var(--sans); cursor: pointer; }
+  .copy:hover { color: #fff; border-color: #4a505b; }
+  .copy .icon { width: 14px; height: 14px; }
+  .source pre { margin: 0; padding: 18px; overflow-x: auto; font: 500 13.5px/1.75 var(--mono); }
+  .source .c { color: #6f7682; }
+  .source .p { color: #ff8a73; user-select: none; }
+
+  /* ---- FAQ ---- */
+  .faq { max-width: 820px; margin: 48px auto 0; border-top: 1px solid var(--line); }
+  details { border-bottom: 1px solid var(--line); }
+  summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 22px 4px; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
+  summary::-webkit-details-marker { display: none; }
+  summary .icon { color: var(--muted); transition: transform .25s; }
+  details[open] summary .icon { transform: rotate(45deg); color: var(--brand); }
+  details p { margin: -6px 4px 24px; color: var(--ink-2); max-width: 680px; }
+
+  /* ---- Footer ---- */
+  footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 14.5px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: center; justify-content: space-between; }
+  footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
+  footer a { text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+  footer .brand { color: var(--ink); }
+  footer .credit { color: var(--ink); font-weight: 600; }
+  footer .credit:hover { color: var(--brand); }
+
+  /* ---- Lightbox ---- */
+  dialog.lightbox { padding: 0; border: 0; background: transparent; max-width: min(96vw, 1600px); width: 100%; }
+  dialog.lightbox::backdrop { background: rgba(10, 11, 14, .82); backdrop-filter: blur(4px); }
+  dialog.lightbox img { width: 100%; border-radius: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, .5); }
+  dialog.lightbox button { position: fixed; top: 16px; right: 16px; width: 42px; height: 42px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer; display: grid; place-items: center; }
+  dialog.lightbox p { color: #c9ccd2; text-align: center; font-size: 14px; margin: 14px 0 0; }
+
+  /* ---- Reveal on scroll ---- */
+  .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s cubic-bezier(.2, .7, .2, 1); }
+  .js .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .js .reveal { opacity: 1; transform: none; transition: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-user-x" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 8 5 5m0-5-5 5"/></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.19"/><path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 8h-1.79A7 7 0 0 0 10 5.07"/></symbol>
+  <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h8m-8 4h10m-10 4h6"/></symbol>
+  <symbol id="i-form" viewBox="0 0 24 24"><path d="M5 4h1a3 3 0 0 1 3 3 3 3 0 0 1 3-3h1M13 20h-1a3 3 0 0 1-3-3 3 3 0 0 1-3 3H5M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1m8 0h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7M9 7v10"/></symbol>
+  <symbol id="i-pages" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-highlight" viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></symbol>
+  <symbol id="i-lang" viewBox="0 0 24 24"><path d="m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5m5 4a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4m2-2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z"/></symbol>
+</svg>
+
+<header class="nav" id="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="icon.svg" alt="" width="30" height="30">Open PDF Editor</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="icon-btn theme-btn" type="button" aria-label="Switch between light and dark theme">
+        <svg class="icon sun"><use href="#i-sun"/></svg><svg class="icon moon"><use href="#i-moon"/></svg>
+      </button>
+      <a class="icon-btn" data-repo-link href="https://github.com/modakoda/open-pdf-editor" aria-label="Source code on GitHub"><svg class="icon"><use href="#i-github"/></svg></a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <span class="pill"><b>Free</b> Open source · Windows, macOS &amp; Linux</span>
+      <h1 id="hero-title">The PDF editor that <em>actually<svg viewBox="0 0 300 20" preserveAspectRatio="none" aria-hidden="true"><path d="M4 14 C 60 4, 120 4, 170 10 S 260 18, 296 6"/></svg></em> edits the PDF.</h1>
+      <p class="lede">Retype text that's already on the page, redact for real, fill forms, make scans searchable and sign with a certificate. A free desktop app that never uploads your files.</p>
+      <div class="cta">
+        <a class="btn btn-primary" data-dl="primary" href="#download"><svg class="icon"><use href="#i-download"/></svg><span data-dl-label>Download for free</span></a>
+        <a class="btn btn-ghost" data-repo-link href="https://github.com/modakoda/open-pdf-editor"><svg class="icon"><use href="#i-github"/></svg>View source</a>
+      </div>
+      <p class="cta-note"><span data-version>MIT licensed</span> · <a href="#download">Other platforms &amp; formats</a></p>
+
+      <div class="showcase">
+        <div class="window">
+          <div class="window-bar"><i></i><i></i><i></i><span>Brightwater proposal.pdf</span></div>
+          <img data-hero src="screenshots/edit-content.webp" width="2880" height="1800"
+               alt="Open PDF Editor with a three-page proposal open. The title, which was already part of the PDF, is selected with the Edit content tool, and the properties panel shows its text, size, color and position.">
+        </div>
+        <div class="callout c1"><span class="dot"><svg class="icon"><use href="#i-type"/></svg></span><div><strong>Text that was already there</strong>Select it, retype it, restyle it.</div></div>
+        <div class="callout c2"><span class="dot"><svg class="icon"><use href="#i-check"/></svg></span><div><strong>Saved into the page</strong>Not a box painted on top.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="proof">
+    <div class="wrap">
+      <ul>
+        <li><svg class="icon"><use href="#i-user-x"/></svg><div><strong>No account</strong><span>Install it and open a file. That's it.</span></div></li>
+        <li><svg class="icon"><use href="#i-cloud-off"/></svg><div><strong>No uploads</strong><span>Every edit happens on your computer.</span></div></li>
+        <li><svg class="icon"><use href="#i-gift"/></svg><div><strong>No subscription</strong><span>Free, with no trial and no paid tier.</span></div></li>
+        <li><svg class="icon"><use href="#i-code"/></svg><div><strong>Open source</strong><span>MIT licensed. Read every line.</span></div></li>
+      </ul>
+    </div>
+  </div>
+
+  <section id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="kicker">What sets it apart</span>
+        <h2 id="features-title">Real edits, <em>not overlays.</em></h2>
+        <p>Plenty of PDF tools only paint new things on top of the page. Open PDF Editor changes the page itself, so what you delete is gone, what you retype is real text, and what you sign stays verifiable.</p>
+      </div>
+
+      <article class="feature reveal">
+        <div class="feature-text">
+          <span class="num">01</span>
+          <h3>Edit what's already on the page</h3>
+          <p>Double-click any line of text in the PDF and type over it, right where it is. No text boxes stacked on top, no retyping whole paragraphs.</p>
+          <ul class="checks">
+            <li><svg class="icon"><use href="#i-check"/></svg>Retype text in place, matching its font, size and color</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Move, resize, rotate, recolor or delete text, images and vector graphics</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Bring forward or send back — edits keep their place in the stacking order</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Deleted content is removed from the file, not covered up</li>
+          </ul>
+        </div>
+        <button class="crop" type="button" style="--s:2;--ox:45%;--oy:50%" data-full="screenshots/retype.webp" data-caption="Retyping a line of the PDF's own text in place.">
+          <span class="window"><span class="viewport"><img src="screenshots/retype.webp" width="2880" height="1800" loading="lazy" alt="The line “Prepared for Harbor Lane Bakery · December 2026”, part of the original PDF, being retyped in place."></span></span>
+          <span class="zoom-hint"><svg class="icon"><use href="#i-expand"/></svg>Full screenshot</span>
+        </button>
+      </article>
+
+      <article class="feature flip reveal">
+        <div class="feature-text">
+          <span class="num">02</span>
+          <h3>Redaction that removes, not hides</h3>
+          <p>Mark what has to go and review it. When you save, everything under the marks is taken out of the file — then the area is filled with the color you choose.</p>
+          <ul class="checks">
+            <li><svg class="icon"><use href="#i-check"/></svg>Removes text, vector graphics, image pixels, comments, links and form fields</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>“Redact all” marks every match of a search in one go</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Remaining characters keep their exact positions</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Sanitize strips metadata, attachments, JavaScript and hidden layers</li>
+          </ul>
+        </div>
+        <button class="crop" type="button" style="--s:1.8;--ox:45%;--oy:57%" data-full="screenshots/redact.webp" data-caption="Prices marked for redaction. On save, the text under the mark is removed from the file.">
+          <span class="window"><span class="viewport"><img src="screenshots/redact.webp" width="2880" height="1800" loading="lazy" alt="A pricing table with the price column marked by the Redact tool."></span></span>
+          <span class="zoom-hint"><svg class="icon"><use href="#i-expand"/></svg>Full screenshot</span>
+        </button>
+      </article>
+
+      <article class="feature reveal">
+        <div class="feature-text">
+          <span class="num">03</span>
+          <h3>Sign by hand, or with a certificate</h3>
+          <p>Draw or type a signature and drop it on the line. When it has to hold up, sign cryptographically with your own certificate.</p>
+          <ul class="checks">
+            <li><svg class="icon"><use href="#i-check"/></svg>Sign with a .p12 / .pfx certificate, RSA or ECDSA</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Added as an incremental update, so earlier signatures stay valid</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Opening a file checks its signatures and whether it changed after signing</li>
+            <li><svg class="icon"><use href="#i-check"/></svg>Your certificate password is used once to unlock the key and never stored</li>
+          </ul>
+          <div class="chips"><span class="chip">PAdES B-B</span><span class="chip">ETSI.CAdES.detached</span><span class="chip">SHA-256</span></div>
+        </div>
+        <button class="crop" type="button" style="--s:1.6;--ox:48%;--oy:30%" data-full="screenshots/sign.webp" data-caption="A drawn signature placed on the signature line.">
+          <span class="window"><span class="viewport"><img src="screenshots/sign.webp" width="2880" height="1800" loading="lazy" alt="A hand-drawn signature placed above the signature line of a proposal."></span></span>
+          <span class="zoom-hint"><svg class="icon"><use href="#i-expand"/></svg>Full screenshot</span>
+        </button>
+      </article>
+    </div>
+  </section>
+
+  <section class="alt" aria-labelledby="all-title">
+    <div class="wrap">
+      <div class="section-head center reveal" style="text-align:center">
+        <span class="kicker">And everything else</span>
+        <h2 id="all-title">One app for the whole job.</h2>
+        <p>From a quick signature to preparing a form for a hundred people.</p>
+      </div>
+      <div class="grid">
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-scan"/></svg></span><h4>Text recognition, offline</h4><p>Make scanned pages searchable, copyable and editable. OCR runs on your machine, and scans are detected when you open them.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-form"/></svg></span><h4>Fill and build forms</h4><p>Fill every field type, or add text, checkbox, radio, dropdown, list and signature fields of your own. Flatten on save.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-pages"/></svg></span><h4>Organize pages</h4><p>Drag to reorder, rotate, duplicate, insert blank pages, merge other PDFs, extract pages or split into several files.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-highlight"/></svg></span><h4>Annotate</h4><p>Text, images, shapes, arrows, freehand ink, highlights, whiteout and sticky notes — still editable after you reopen the file.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lang"/></svg></span><h4>Text in many scripts</h4><p>Latin, Greek and Cyrillic fonts built in. Chinese, Japanese, Korean, Thai and Devanagari use your system's fonts.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lock"/></svg></span><h4>Password protection</h4><p>Encrypt with AES-256, or remove the password from a file you can open. Existing security settings are kept on save.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-hash"/></svg></span><h4>Watermarks &amp; page numbers</h4><p>Stamp every page, number them, and edit document properties: title, author, dates and custom entries.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-undo"/></svg></span><h4>Undo anything</h4><p>Every change can be undone. Unsaved work is protected when you close a window or quit.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-refresh"/></svg></span><h4>Stays up to date</h4><p>New versions download in the background and install when you quit. Prefer to update by hand? Turn it off.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy" id="privacy" aria-labelledby="privacy-title">
+    <div class="wrap privacy-grid">
+      <div class="reveal">
+        <div class="section-head">
+          <span class="kicker">Private by design</span>
+          <h2 id="privacy-title">Your files never <em>leave your computer.</em></h2>
+          <p>Contracts, medical letters, tax forms: the documents you edit are often the ones you'd least like to upload. So nothing is.</p>
+        </div>
+        <div class="facts">
+          <div class="fact"><svg class="icon"><use href="#i-shield"/></svg><div><strong>Nothing to upload to</strong><span>Rendering, editing, OCR, redaction and signing all run locally. There's no server and no account.</span></div></div>
+          <div class="fact"><svg class="icon"><use href="#i-key"/></svg><div><strong>Keys stay in memory</strong><span>A certificate password unlocks your key for signing and is never written to disk.</span></div></div>
+          <div class="fact"><svg class="icon"><use href="#i-refresh"/></svg><div><strong>One optional connection</strong><span>The only thing the app fetches is a check for new versions — and you can switch that off.</span></div></div>
+        </div>
+      </div>
+      <div class="machine reveal" aria-label="Diagram: your PDF is opened, edited and saved entirely on your computer.">
+        <span class="machine-label">Your computer</span>
+        <div class="flow">
+          <div class="node"><svg class="icon"><use href="#i-file"/></svg>contract.pdf<small>in</small></div>
+          <span class="arrow" aria-hidden="true"></span>
+          <div class="node app"><img src="icon.svg" alt="">Open PDF Editor<small>local</small></div>
+          <div class="tasks"><span>edit</span><span>OCR</span><span>redact</span><span>sign</span><span>encrypt</span></div>
+          <span class="arrow" aria-hidden="true"></span>
+          <div class="node"><svg class="icon"><use href="#i-file"/></svg>contract.pdf<small>out</small></div>
+        </div>
+        <div class="cloud"><svg class="icon"><use href="#i-cloud-off"/></svg>Bytes sent to a server: 0</div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="native-title">
+    <div class="wrap compare-wrap">
+      <div class="reveal">
+        <span class="kicker">At home on your desktop</span>
+        <h2 id="native-title">Light or dark, it follows your system.</h2>
+        <p style="color:var(--ink-2);margin:20px 0 0">A real desktop app for Windows, macOS and Linux. It opens PDFs from your file manager, remembers recent files, prints, and gives every tool a one-key shortcut.</p>
+        <div class="platforms"><span class="chip">Windows x64 · ARM64</span><span class="chip">macOS Apple silicon · Intel</span><span class="chip">Linux x64 · ARM64</span></div>
+      </div>
+      <div class="compare reveal" style="--pos:50%">
+        <img src="screenshots/editor-light.webp" width="2880" height="1800" loading="lazy" alt="The editor in light mode.">
+        <img class="top" src="screenshots/editor-dark.webp" width="2880" height="1800" loading="lazy" alt="The editor in dark mode.">
+        <span class="handle" aria-hidden="true"></span>
+        <span class="tag l">Light</span><span class="tag r">Dark</span>
+        <input type="range" min="0" max="100" value="50" aria-label="Drag to compare light and dark mode">
+      </div>
+    </div>
+  </section>
+
+  <section class="alt download" id="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <div class="reveal">
+        <img class="lead-in" src="icon.svg" alt="" width="84" height="84">
+        <h2 id="download-title">Get Open PDF Editor.</h2>
+        <p class="section-head center" style="color:var(--ink-2);font-size:18px;margin-top:18px">Free for everyone, for any use. Pick your system below.</p>
+      </div>
+      <div class="downloads">
+        <div class="dl reveal" data-os="mac">
+          <span class="yours">Your system</span>
+          <h3>macOS</h3>
+          <p class="arch">Apple silicon and Intel Macs</p>
+          <a class="btn btn-primary" data-asset="mac-arm64-dmg" href="https://github.com/modakoda/open-pdf-editor/releases/latest"><svg class="icon"><use href="#i-download"/></svg>Apple silicon <small>.dmg</small></a>
+          <div class="more"><a data-asset="mac-x64-dmg" href="https://github.com/modakoda/open-pdf-editor/releases/latest">Intel .dmg</a><a data-asset="mac-arm64-zip" href="https://github.com/modakoda/open-pdf-editor/releases/latest">.zip</a></div>
+        </div>
+        <div class="dl reveal" data-os="win">
+          <span class="yours">Your system</span>
+          <h3>Windows</h3>
+          <p class="arch">64-bit and ARM PCs</p>
+          <a class="btn btn-primary" data-asset="win-x64-setup" href="https://github.com/modakoda/open-pdf-editor/releases/latest"><svg class="icon"><use href="#i-download"/></svg>Installer <small>x64</small></a>
+          <div class="more"><a data-asset="win-arm64-setup" href="https://github.com/modakoda/open-pdf-editor/releases/latest">ARM64 installer</a><a data-asset="win-x64-portable" href="https://github.com/modakoda/open-pdf-editor/releases/latest">Portable</a></div>
+        </div>
+        <div class="dl reveal" data-os="linux">
+          <span class="yours">Your system</span>
+          <h3>Linux</h3>
+          <p class="arch">x64 and ARM64</p>
+          <a class="btn btn-primary" data-asset="linux-x64-appimage" href="https://github.com/modakoda/open-pdf-editor/releases/latest"><svg class="icon"><use href="#i-download"/></svg>AppImage <small>x64</small></a>
+          <div class="more"><a data-asset="linux-x64-deb" href="https://github.com/modakoda/open-pdf-editor/releases/latest">.deb</a><a data-asset="linux-x64-tar" href="https://github.com/modakoda/open-pdf-editor/releases/latest">.tar.gz</a><a data-asset="linux-arm64-appimage" href="https://github.com/modakoda/open-pdf-editor/releases/latest">ARM64</a></div>
+        </div>
+      </div>
+      <p class="release-meta"><span data-release-info>Downloads come from the project's GitHub Releases.</span> <a data-releases-link href="https://github.com/modakoda/open-pdf-editor/releases">All releases</a></p>
+
+      <div class="source reveal">
+        <div class="source-bar"><span>Build from source</span><button class="copy" type="button"><svg class="icon"><use href="#i-copy"/></svg><span>Copy</span></button></div>
+<pre><code><span class="p">$ </span>git clone https://github.com/modakoda/open-pdf-editor.git
+<span class="p">$ </span>cd open-pdf-editor
+<span class="p">$ </span>npm install
+<span class="p">$ </span>node node_modules/electron/install.js
+<span class="p">$ </span>npm run dist   <span class="c"># installers for your OS in release/</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" aria-labelledby="faq-title">
+    <div class="wrap">
+      <div class="section-head center reveal" style="text-align:center">
+        <span class="kicker">Questions</span>
+        <h2 id="faq-title">Good to know.</h2>
+      </div>
+      <div class="faq reveal">
+        <details>
+          <summary>Is it really free?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>Yes. Open PDF Editor is open source under the MIT license: no account, no trial, no paid tier and nothing stamped on your files. You can use it at home or at work.</p>
+        </details>
+        <details>
+          <summary>Does it upload my documents anywhere?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>No. Everything, including text recognition and signing, runs on your computer. The only network request the app makes is checking for updates, which you can turn off under Help › Check for Updates Automatically.</p>
+        </details>
+        <details>
+          <summary>Is the redaction safe for sensitive documents?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>On save, the text, graphics and image pixels under each mark are removed from the file, along with comments, links and form fields there. “Sanitize document” also removes metadata, attachments, JavaScript and hidden layers. Use Redact rather than Whiteout (which only covers content), and check the result before sharing.</p>
+        </details>
+        <details>
+          <summary>Can it check signatures on files I receive?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>Yes. Opening a signed PDF verifies each signature's integrity, signer, time and reason, and tells you whether the file changed after signing. It does not yet check certificates against trusted authorities, so a signer's identity is shown as not verified.</p>
+        </details>
+        <details>
+          <summary>Which languages can I type in?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>Latin, Greek and Cyrillic work out of the box with bundled fonts. Chinese, Japanese, Korean, Thai and Devanagari use the fonts installed on your system. Right-to-left scripts such as Arabic and Hebrew aren't supported yet. Text recognition includes English and Lithuanian.</p>
+        </details>
+        <details>
+          <summary>Why does macOS or Windows warn me when I open it?<svg class="icon"><use href="#i-plus"/></svg></summary>
+          <p>Builds that aren't signed with a paid developer certificate show a warning the first time you open them. On macOS, open System Settings › Privacy &amp; Security and click Open Anyway; on Windows, choose More info › Run anyway.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="icon.svg" alt="" width="26" height="26">Open PDF Editor</a>
+    <span>Built on pdf.js, pdf-lib, Tesseract and Electron. © 2026 <a class="credit" href="https://modakoda.com">Modakoda</a>.</span>
+    <nav aria-label="Footer">
+      <a data-repo-link href="https://github.com/modakoda/open-pdf-editor">GitHub</a>
+      <a data-releases-link href="https://github.com/modakoda/open-pdf-editor/releases">Releases</a>
+      <a href="https://github.com/modakoda/open-pdf-editor/blob/main/LICENSE">MIT License</a>
+    </nav>
+  </div>
+</footer>
+
+<dialog class="lightbox" aria-label="Screenshot">
+  <button type="button" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script>
+(() => {
+  const REPO = 'modakoda/open-pdf-editor'
+  const root = document.documentElement
+
+  // ---- Theme toggle (explicit light/dark overrides the system setting) ----
+  const systemDark = matchMedia('(prefers-color-scheme: dark)')
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : systemDark.matches
+  const heroImg = document.querySelector('[data-hero]')
+  const syncHero = () => { heroImg.src = isDark() ? 'screenshots/edit-content-dark.webp' : 'screenshots/edit-content.webp' }
+  document.querySelector('.theme-btn').addEventListener('click', () => {
+    root.dataset.theme = isDark() ? 'light' : 'dark'
+    try { localStorage.setItem('ope-theme', root.dataset.theme) } catch {}
+    syncHero()
+  })
+  systemDark.addEventListener('change', syncHero)
+  syncHero()
+
+  // ---- Nav border once scrolled ----
+  const nav = document.querySelector('.nav')
+  const onScroll = () => nav.classList.toggle('scrolled', scrollY > 8)
+  addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
+
+  // ---- Reveal on scroll ----
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) }
+  }, { rootMargin: '0px 0px -8% 0px' })
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el))
+
+  // ---- Light/dark compare slider ----
+  const compare = document.querySelector('.compare')
+  compare.querySelector('input').addEventListener('input', (e) => compare.style.setProperty('--pos', e.target.value + '%'))
+
+  // ---- Lightbox for feature screenshots ----
+  const box = document.querySelector('dialog.lightbox')
+  document.querySelectorAll('.crop').forEach((btn) => btn.addEventListener('click', () => {
+    box.querySelector('img').src = btn.dataset.full
+    box.querySelector('img').alt = btn.querySelector('img').alt
+    box.querySelector('p').textContent = btn.dataset.caption
+    box.showModal()
+  }))
+  box.addEventListener('click', (e) => { if (e.target !== box.querySelector('img')) box.close() })
+
+  // ---- Copy build commands ----
+  const copyBtn = document.querySelector('.copy')
+  copyBtn.addEventListener('click', async () => {
+    const text = document.querySelector('.source code').innerText.split('\n')
+      .map((l) => l.replace(/^\$ /, '').replace(/\s+#.*$/, '')).join('\n')
+    try { await navigator.clipboard.writeText(text); copyBtn.querySelector('span').textContent = 'Copied' }
+    catch { copyBtn.querySelector('span').textContent = 'Select & copy' }
+    setTimeout(() => { copyBtn.querySelector('span').textContent = 'Copy' }, 1800)
+  })
+
+  // ---- Downloads: detect the visitor's system, link straight to the latest release's files ----
+  const ua = navigator.userAgent
+  const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''
+  const mobile = /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.userAgentData && navigator.userAgentData.mobile)
+  const os = mobile ? null : /Mac/i.test(plat + ua) ? 'mac' : /Win/i.test(plat + ua) ? 'win' : /Linux|X11|CrOS/i.test(plat + ua) ? 'linux' : null
+  let arm = /arm|aarch64/i.test(ua)
+  const OS_NAMES = { mac: 'macOS', win: 'Windows', linux: 'Linux' }
+
+  // Asset name patterns, following electron-builder.yml's artifactName settings.
+  const PATTERNS = {
+    'mac-arm64-dmg': /-mac-arm64\.dmg$/, 'mac-x64-dmg': /-mac-x64\.dmg$/, 'mac-arm64-zip': /-mac-arm64\.zip$/, 'mac-x64-zip': /-mac-x64\.zip$/,
+    'win-x64-setup': /-win-setup-x64\.exe$/, 'win-arm64-setup': /-win-setup-arm64\.exe$/,
+    'win-x64-portable': /-win-portable-x64\.exe$/, 'win-arm64-portable': /-win-portable-arm64\.exe$/,
+    'linux-x64-appimage': /-linux-(x86_64|x64)\.AppImage$/, 'linux-arm64-appimage': /-linux-(arm64|aarch64)\.AppImage$/,
+    'linux-x64-deb': /-linux-(amd64|x64)\.deb$/, 'linux-arm64-deb': /-linux-arm64\.deb$/,
+    'linux-x64-tar': /-linux-x64\.tar\.gz$/, 'linux-arm64-tar': /-linux-arm64\.tar\.gz$/
+  }
+  const PRIMARY = { mac: () => 'mac-arm64-dmg', win: () => arm ? 'win-arm64-setup' : 'win-x64-setup', linux: () => arm ? 'linux-arm64-appimage' : 'linux-x64-appimage' }
+  const assetUrls = {}
+
+  const primaryBtn = document.querySelector('[data-dl="primary"]')
+  const updatePrimary = () => {
+    if (!os) return
+    primaryBtn.querySelector('[data-dl-label]').textContent = 'Download for ' + OS_NAMES[os]
+    primaryBtn.href = assetUrls[PRIMARY[os]()] || '#download'
+  }
+  if (os) {
+    document.querySelector(`.dl[data-os="${os}"]`).classList.add('current')
+    updatePrimary()
+  }
+  // Chromium can tell ARM from x64; Intel Macs can't be told apart from Apple silicon in Safari.
+  if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+    navigator.userAgentData.getHighEntropyValues(['architecture']).then((v) => { arm = v.architecture === 'arm'; updatePrimary() }).catch(() => {})
+  }
+
+  fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } })
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((release) => {
+      for (const [key, re] of Object.entries(PATTERNS)) {
+        const asset = release.assets.find((a) => re.test(a.name))
+        if (asset) assetUrls[key] = asset.browser_download_url
+      }
+      document.querySelectorAll('[data-asset]').forEach((a) => { if (assetUrls[a.dataset.asset]) a.href = assetUrls[a.dataset.asset] })
+      const date = new Date(release.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+      document.querySelector('[data-release-info]').textContent = `Latest: ${release.tag_name}, released ${date}.`
+      document.querySelector('[data-version]').textContent = `${release.tag_name} · MIT licensed`
+      updatePrimary()
+    })
+    .catch(() => { /* links stay on the Releases page */ })
+})()
+</script>
+</body>
+</html>

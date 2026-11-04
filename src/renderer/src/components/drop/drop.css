@@ -1,0 +1,36 @@
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(37, 99, 235, 0.08);
+  outline: 3px dashed var(--accent);
+  outline-offset: -10px;
+  animation: ope-fade-in 0.1s ease-out;
+}
+.drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 32px;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  box-shadow: var(--shadow-lg);
+}
+.drop-overlay-card strong {
+  color: var(--fg);
+  font-size: 15px;
+}
+.drop-overlay-card small {
+  color: var(--fg-muted);
+}
+@keyframes ope-fade-in {
+  from {
+    opacity: 0;
+  }
+}

@@ -221,6 +221,12 @@ async function launch(file: string, theme: 'light' | 'dark'): Promise<Launched> 
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'webp', quality: 88 })
       writeFileSync(join(OUT, `${name}.webp`), Buffer.from(data, 'base64'))
       console.log(`wrote site/screenshots/${name}.webp`)
+      // The hero also gets a half-size copy for phones (its srcset in site/index.html).
+      if (name.startsWith('edit-content')) {
+        const half = await cdp.send('Page.captureScreenshot', { format: 'webp', quality: 88, clip: { x: 0, y: 0, ...SIZE, scale: 0.5 } })
+        writeFileSync(join(OUT, `${name}-1440.webp`), Buffer.from(half.data, 'base64'))
+        console.log(`wrote site/screenshots/${name}-1440.webp`)
+      }
     },
     close: async () => {
       await app.evaluate(({ BrowserWindow, app: electronApp }) => {

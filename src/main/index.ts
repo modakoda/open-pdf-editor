@@ -6,7 +6,7 @@ import { app } from 'electron'
 import { resolve } from 'node:path'
 import { pdfPathsFromArgv } from './files'
 import { registerIpcHandlers } from './ipc'
-import { installMenu, PROJECT_URL, refreshMenu } from './menu'
+import { installMenu, PROJECT_URL, refreshMenu, WEBSITE_URL } from './menu'
 import { openPath, openPaths } from './open'
 import { iconPath, PRODUCT_NAME, rendererRoot } from './paths'
 import { handleAppScheme, registerAppScheme } from './protocol'
@@ -68,7 +68,7 @@ function start(): void {
       applicationVersion: app.getVersion(),
       version: `Electron ${process.versions.electron}`,
       copyright: `© ${new Date().getFullYear()} Modestas Kažinauskas. MIT License.`,
-      website: PROJECT_URL,
+      website: WEBSITE_URL,
       iconPath
     })
     hardenSessions()

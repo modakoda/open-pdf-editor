@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "description": "Cross-platform desktop PDF editor for Windows, macOS and Linux",
   "license": "MIT",
+  "homepage": "https://open-pdf-editor.modakoda.com/",
   "author": "Modestas Kažinauskas",
   "main": "./out/main/index.js",
   "type": "module",

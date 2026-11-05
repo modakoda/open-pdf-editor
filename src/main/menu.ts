@@ -14,6 +14,7 @@ import { checkForUpdatesFromMenu, updater } from './updates'
 import { windows } from './windows'
 
 export const PROJECT_URL = 'https://github.com/modakoda/open-pdf-editor'
+export const WEBSITE_URL = 'https://open-pdf-editor.modakoda.com/'
 
 export function menuId(action: MenuAction): string {
   return `menu:${action}`
@@ -283,7 +284,7 @@ export function buildMenuTemplate(): MenuItemConstructorOptions[] {
     label: mac ? 'Help' : '&Help',
     role: 'help',
     submenu: [
-      { id: 'menu:website', label: `${PRODUCT_NAME} Website`, click: () => void shell.openExternal(PROJECT_URL) },
+      { id: 'menu:website', label: `${PRODUCT_NAME} Website`, click: () => void shell.openExternal(WEBSITE_URL) },
       sep,
       ...updateMenuItems(),
       ...(mac ? [] : [sep, item('about', `About ${PRODUCT_NAME}`)])

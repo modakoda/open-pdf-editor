@@ -1,7 +1,10 @@
 name: Release
 
-# Push a tag matching package.json's version (e.g. v0.1.0) to build installers on all three
-# operating systems and publish them to a GitHub Release.
+# Builds installers on all three operating systems and publishes them to a GitHub Release. Start it
+# either way:
+#   - Actions › Release › Run workflow: choose patch, minor, major or an exact version. The run
+#     bumps package.json, commits "Release X.Y.Z" and pushes the vX.Y.Z tag to the chosen branch.
+#   - Push a tag matching package.json's version (e.g. v0.1.0).
 #
 # Optional signing secrets (used only when set):
 #   macOS:   CSC_LINK, CSC_KEY_PASSWORD (Developer ID Application .p12, base64 or URL)
@@ -18,6 +21,12 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'patch, minor, major, or an exact version such as 1.0.0 or 0.2.0-beta.1'
+        required: true
+        default: patch
 
 permissions:
   contents: write
@@ -27,8 +36,35 @@ defaults:
     shell: bash
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # A tag pushed with GITHUB_TOKEN starts no new workflow run, so this run builds it. The atomic
+      # push fails, changing nothing, if the branch moved or the tag exists (e.g. "Re-run all jobs").
+      - name: Bump the version and push the tag
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          npm version "$VERSION" -m 'Release %s'
+          tag="v$(node -p "require('./package.json').version")"
+          git push --atomic origin "HEAD:$GITHUB_REF" "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.name }})
+    needs: version
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -45,6 +81,8 @@ jobs:
       FORCE_COLOR: '1'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: actions/setup-node@v5
         with:
@@ -52,10 +90,12 @@ jobs:
           cache: npm
 
       - name: Check that the tag matches package.json
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::Tag ${TAG} does not match package.json version ${version}"
             exit 1
           fi
 
@@ -155,7 +195,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -172,7 +212,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber

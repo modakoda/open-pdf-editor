@@ -265,7 +265,7 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 26px; transition: transform .2s, box-shadow .2s, border-color .2s; }
   .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); border-color: var(--line-strong); }
   .card .badge { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
-  .card h4 { margin: 18px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+  .card h3 { margin: 18px 0 0; font-size: 17px; font-weight: 600; line-height: inherit; letter-spacing: -.02em; text-wrap: wrap; }
   .card p { margin: 8px 0 0; font-size: 15px; color: var(--muted); line-height: 1.55; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
@@ -542,15 +542,15 @@
         <p>From a quick signature to preparing a form for a hundred people.</p>
       </div>
       <div class="grid">
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-scan"/></svg></span><h4>Text recognition, offline</h4><p>Make scanned pages searchable, copyable and editable. OCR runs on your machine, and scans are detected when you open them.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-form"/></svg></span><h4>Fill and build forms</h4><p>Fill every field type, or add text, checkbox, radio, dropdown, list and signature fields of your own. Flatten on save.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-pages"/></svg></span><h4>Organize pages</h4><p>Drag to reorder, rotate, duplicate, insert blank pages, merge other PDFs, extract pages or split into several files.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-highlight"/></svg></span><h4>Annotate</h4><p>Text, images, shapes, arrows, freehand ink, highlights, whiteout and sticky notes — still editable after you reopen the file.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lang"/></svg></span><h4>Text in many scripts</h4><p>Latin, Greek and Cyrillic fonts built in. Chinese, Japanese, Korean, Thai and Devanagari use your system's fonts.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lock"/></svg></span><h4>Password protection</h4><p>Encrypt with AES-256, or remove the password from a file you can open. Existing security settings are kept on save.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-hash"/></svg></span><h4>Watermarks &amp; page numbers</h4><p>Stamp every page, number them, and edit document properties: title, author, dates and custom entries.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-undo"/></svg></span><h4>Undo anything</h4><p>Every change can be undone. Unsaved work is protected when you close a window or quit.</p></div>
-        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-refresh"/></svg></span><h4>Stays up to date</h4><p>New versions download in the background and install when you quit. Prefer to update by hand? Turn it off.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-scan"/></svg></span><h3>Text recognition, offline</h3><p>Make scanned pages searchable, copyable and editable. OCR runs on your machine, and scans are detected when you open them.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-form"/></svg></span><h3>Fill and build forms</h3><p>Fill every field type, or add text, checkbox, radio, dropdown, list and signature fields of your own. Flatten on save.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-pages"/></svg></span><h3>Organize pages</h3><p>Drag to reorder, rotate, duplicate, insert blank pages, merge other PDFs, extract pages or split into several files.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-highlight"/></svg></span><h3>Annotate</h3><p>Text, images, shapes, arrows, freehand ink, highlights, whiteout and sticky notes — still editable after you reopen the file.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lang"/></svg></span><h3>Text in many scripts</h3><p>Latin, Greek and Cyrillic fonts built in. Chinese, Japanese, Korean, Thai and Devanagari use your system's fonts.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-lock"/></svg></span><h3>Password protection</h3><p>Encrypt with AES-256, or remove the password from a file you can open. Existing security settings are kept on save.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-hash"/></svg></span><h3>Watermarks &amp; page numbers</h3><p>Stamp every page, number them, and edit document properties: title, author, dates and custom entries.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-undo"/></svg></span><h3>Undo anything</h3><p>Every change can be undone. Unsaved work is protected when you close a window or quit.</p></div>
+        <div class="card reveal"><span class="badge"><svg class="icon"><use href="#i-refresh"/></svg></span><h3>Stays up to date</h3><p>New versions download in the background and install when you quit. Prefer to update by hand? Turn it off.</p></div>
       </div>
     </div>
   </section>

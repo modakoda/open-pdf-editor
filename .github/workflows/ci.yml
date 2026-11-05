@@ -1,9 +1,12 @@
 name: CI
 
+# Website-only changes (site/) don't touch the app, so they skip the app build; pages.yml deploys them.
 on:
   push:
     branches: ['**']
+    paths-ignore: ['site/**', '.github/workflows/pages.yml']
   pull_request:
+    paths-ignore: ['site/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 concurrency:

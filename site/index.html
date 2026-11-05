@@ -421,8 +421,11 @@
       <div class="showcase">
         <div class="window">
           <div class="window-bar"><i></i><i></i><i></i><span>Brightwater proposal.pdf</span></div>
-          <img data-hero src="screenshots/edit-content.webp" width="2880" height="1800"
+          <picture>
+          <source data-hero-dark srcset="screenshots/edit-content-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="screenshots/edit-content.webp" width="2880" height="1800" fetchpriority="high"
                alt="Open PDF Editor with a three-page proposal open. The title, which was already part of the PDF, is selected with the Edit content tool, and the properties panel shows its text, size, color and position.">
+          </picture>
         </div>
         <div class="callout c1"><span class="dot"><svg class="icon"><use href="#i-type"/></svg></span><div><strong>Text that was already there</strong>Select it, retype it, restyle it.</div></div>
         <div class="callout c2"><span class="dot"><svg class="icon"><use href="#i-check"/></svg></span><div><strong>Saved into the page</strong>Not a box painted on top.</div></div>
@@ -679,14 +682,14 @@
   // ---- Theme toggle (explicit light/dark overrides the system setting) ----
   const systemDark = matchMedia('(prefers-color-scheme: dark)')
   const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : systemDark.matches
-  const heroImg = document.querySelector('[data-hero]')
-  const syncHero = () => { heroImg.src = isDark() ? 'screenshots/edit-content-dark.webp' : 'screenshots/edit-content.webp' }
+  // The hero's <source> follows the system by itself; an explicit theme forces it on or off.
+  const heroDark = document.querySelector('[data-hero-dark]')
+  const syncHero = () => { heroDark.media = root.dataset.theme ? (root.dataset.theme === 'dark' ? 'all' : 'not all') : '(prefers-color-scheme: dark)' }
   document.querySelector('.theme-btn').addEventListener('click', () => {
     root.dataset.theme = isDark() ? 'light' : 'dark'
     try { localStorage.setItem('ope-theme', root.dataset.theme) } catch {}
     syncHero()
   })
-  systemDark.addEventListener('change', syncHero)
   syncHero()
 
   // ---- Nav border once scrolled ----

@@ -1,0 +1,21 @@
+# Open PDF Editor
+
+> Free, open-source (MIT) desktop PDF editor for Windows, macOS and Linux. It edits the PDF itself instead of drawing overlays: retype existing text, redact for real, fill and build forms, run OCR offline and sign with a certificate. Everything runs locally; there is no account and no upload.
+
+## Features
+
+- Edit existing text in place, matching its font, size and color; move, resize, recolor or delete text, images and vector graphics
+- Redaction that removes text, graphics, image pixels, comments, links and form fields under the marks; "Sanitize" strips metadata, attachments, JavaScript and hidden layers
+- Hand-drawn or typed signatures, and certificate signatures (.p12/.pfx, RSA or ECDSA, PAdES B-B); verifies signatures on files it opens
+- Offline OCR (text recognition) for scanned pages
+- Fill every form field type, add new fields, flatten on save
+- Reorder, rotate, insert, merge, extract and split pages
+- Annotations, watermarks, page numbers, AES-256 password protection
+- Free alternative to Adobe Acrobat for everyday editing, including on Linux
+
+## Links
+
+- [Website](https://open-pdf-editor.modakoda.com/)
+- [Source code](https://github.com/modakoda/open-pdf-editor)
+- [Downloads (GitHub Releases)](https://github.com/modakoda/open-pdf-editor/releases/latest)
+- [License (MIT)](https://github.com/modakoda/open-pdf-editor/blob/main/LICENSE)

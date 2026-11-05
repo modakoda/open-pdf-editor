@@ -38,15 +38,16 @@
   ]
 }
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>
   // Apply a saved theme before first paint.
   try { const t = localStorage.getItem('ope-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t } catch {}
   document.documentElement.classList.add('js')
 </script>
 <style>
+  /* Geist and Geist Mono (OFL, fonts/OFL.txt): variable fonts, Latin subset from Google Fonts. */
+  @font-face { font-family: Geist; src: url(fonts/geist-latin.woff2) format('woff2'); font-weight: 400 800; font-display: swap; }
+  @font-face { font-family: 'Geist Mono'; src: url(fonts/geist-mono-latin.woff2) format('woff2'); font-weight: 400 500; font-display: swap; }
   :root {
     --bg: #faf8f5;
     --bg-alt: #f3efe9;

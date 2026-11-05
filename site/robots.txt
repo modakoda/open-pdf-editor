@@ -1,0 +1,6 @@
+# Search engines and AI crawlers are welcome. Cloudflare's managed robots.txt and its
+# "Block AI bots" rule must stay off, or they override this file.
+User-agent: *
+Allow: /
+
+Sitemap: https://open-pdf-editor.modakoda.com/sitemap.xml

@@ -12,23 +12,10 @@ import {
   type EditObject,
   type EditorDocument
 } from '../../src/core'
-import { stripMarkedContent } from '../../src/core/content'
 import { makeTextPdf } from '../fixtures/pdfs'
 import { TINY_JPEG, allPagesText, makePng, pageAnnotations, pageContent, registerTestFonts } from './helpers'
 
 beforeAll(() => registerTestFonts())
-
-async function contentLibraryReady(): Promise<boolean> {
-  const doc = await PDFDocument.create()
-  const page = doc.addPage()
-  try {
-    stripMarkedContent(doc, page)
-    return true
-  } catch (e) {
-    return !/not implemented/.test(String(e))
-  }
-}
-const libraryReady = await contentLibraryReady()
 
 function sampleObjects(p1: string, p2: string): EditObject[] {
   return [
@@ -179,7 +166,7 @@ describe('reopening a saved file', () => {
   })
 })
 
-describe.skipIf(!libraryReady)('re-exporting a reopened file (needs the content library)', () => {
+describe('re-exporting a reopened file', () => {
   it('draws every object exactly once', async () => {
     const { out } = await savedWithObjects()
     const again = await exportDocument(await openDocument(out, 'saved.pdf'))

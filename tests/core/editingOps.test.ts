@@ -18,7 +18,6 @@ import {
   type EditorDocument,
   type FieldObject
 } from '../../src/core'
-import { stripMarkedContent } from '../../src/core/content'
 import { makeEditableFormPdf, makeTextPdf } from '../fixtures/pdfs'
 import { allPagesText, deepFreeze, registerTestFonts } from './helpers'
 
@@ -109,19 +108,7 @@ describe('content, annotation and field edit operations', () => {
   })
 })
 
-async function contentLibraryReady(): Promise<boolean> {
-  const doc = await PDFDocument.create()
-  const page = doc.addPage()
-  try {
-    stripMarkedContent(doc, page)
-    return true
-  } catch (e) {
-    return !/not implemented/.test(String(e))
-  }
-}
-const libraryReady = await contentLibraryReady()
-
-describe.skipIf(!libraryReady)('content edits (needs the content library)', () => {
+describe('content edits', () => {
   it('lists the items of a page and applies edits on export and in previews', async () => {
     const doc = await openDocument(await makeTextPdf(2), 't.pdf')
     const pageId = doc.pages[0].id

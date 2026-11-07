@@ -189,23 +189,6 @@
   caret-color: var(--selection);
 }
 
-/* ---- edit existing text ---- */
-.ed-runs {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.ed-run {
-  position: absolute;
-  pointer-events: auto;
-  cursor: text;
-  border-radius: 1px;
-}
-.ed-run:hover {
-  outline: 1px solid var(--selection);
-  background: var(--accent-soft);
-}
-
 /* ---- form fields ---- */
 .ed-forms {
   position: absolute;

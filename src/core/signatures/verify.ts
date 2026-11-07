@@ -359,7 +359,6 @@ export async function verifyLoadedSignatures(doc: PDFDocument, pages: PDFPage[],
   return out.sort((x, y) => x.signedLength - y.signedLength)
 }
 
-/** Loads `bytes` and verifies its signatures. */
 export async function verifyPdfSignatures(bytes: Uint8Array, password?: string): Promise<PdfSignatureInfo[]> {
   const { doc } = await openPdfLib(bytes, password, { identify: false })
   return verifyLoadedSignatures(doc, doc.getPages(), bytes)

@@ -309,7 +309,6 @@ export interface ContentItem {
 /** A change to an existing content item (see ContentItem). */
 export interface ContentEdit {
   itemId: string
-  /** Remove the item from the page. */
   deleted?: boolean
   /**
    * Total transform applied to the original item in page space (y down), e.g. a move is

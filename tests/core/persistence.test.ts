@@ -18,7 +18,6 @@ import { TINY_JPEG, allPagesText, makePng, pageAnnotations, pageContent, registe
 
 beforeAll(() => registerTestFonts())
 
-/** The content-stream library (src/core/content) is developed in parallel. */
 async function contentLibraryReady(): Promise<boolean> {
   const doc = await PDFDocument.create()
   const page = doc.addPage()

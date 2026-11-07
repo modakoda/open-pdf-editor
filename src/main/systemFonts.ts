@@ -228,7 +228,6 @@ function scanFontFiles(dirs: string[], maxDepth = 4): Map<string, string> {
   return found
 }
 
-// ---------------------------------------------------------------------------------------
 // fontconfig (Linux)
 
 /** fontconfig language queries and what a match means. */
@@ -324,8 +323,6 @@ async function fontconfigFonts(): Promise<FontCandidate[] | null> {
       return n < 3
     })
 }
-
-// ---------------------------------------------------------------------------------------
 
 /** Test hook (OPE_E2E=1 only): JSON list of FontCandidate replacing the system fonts. */
 function e2eFonts(env: NodeJS.ProcessEnv): FontCandidate[] | null {

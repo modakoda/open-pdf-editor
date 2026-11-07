@@ -5,7 +5,7 @@
  *   temporary profile (OPE_USER_DATA) and OPE_E2E=1, and cleans up afterwards.
  * - Native dialogs are replaced in the main process (`dialog.*` via electronApp.evaluate); by
  *   default every dialog is "cancelled" so a test can never hang on a real dialog.
- * - Fixture PDFs come from tests/fixtures/pdfs.ts, generated once per worker into a temp folder.
+ * - Fixture PDFs come from tests/fixtures/generate.ts, generated once per worker into a temp folder.
  *
  * The app must be built first (`npm run build`, or `npm run test:e2e`).
  */
@@ -339,7 +339,6 @@ export async function windowCount(app: ElectronApplication): Promise<number> {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
 }
 
-/** Title of the window showing `page`. */
 export async function windowTitle(app: ElectronApplication, page: Page): Promise<string> {
   const win = await app.browserWindow(page)
   return win.evaluate((w) => w.getTitle())

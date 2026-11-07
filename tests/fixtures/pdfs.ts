@@ -540,7 +540,6 @@ export async function makeTaggedSecretPdf(): Promise<Uint8Array> {
   d.catalog.set(PDFName.of('StructTreeRoot'), root)
   d.catalog.set(PDFName.of('MarkInfo'), ctx.obj({ Marked: true }))
 
-  // Outline
   const outlines = ctx.nextRef()
   const [intro, secret, inside, end] = [ctx.nextRef(), ctx.nextRef(), ctx.nextRef(), ctx.nextRef()]
   const dest = (p: { ref: FixtureRef }) => ctx.obj([p.ref, 'XYZ', null, null, null])

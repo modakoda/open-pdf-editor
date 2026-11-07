@@ -1,7 +1,7 @@
 /**
  * Redaction areas of one page: always shown (red outline), editable with the Redact tool —
  * drag on the page to mark an area, click to select, drag to move, handles to resize,
- * Delete to remove (see redactionActions.ts for keyboard handling). Every change is undoable.
+ * Delete to remove (see actions/redactActions.ts for keyboard handling). Every change is undoable.
  */
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import {

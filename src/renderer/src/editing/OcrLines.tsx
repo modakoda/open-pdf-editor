@@ -35,7 +35,6 @@ export function useSelectedOcrLine(): { lineRef: OcrLineRef; line: OcrLine } | n
   return lineRef && line && tool === 'edit-content' ? { lineRef, line } : null
 }
 
-/** Properties of a recognized line. */
 export function OcrLineProperties({ lineRef: ref, line }: { lineRef: OcrLineRef; line: OcrLine }) {
   const confidence = line.words.length ? line.words.reduce((n, w) => n + w.confidence, 0) / line.words.length : 0
   return (

@@ -121,7 +121,6 @@ export function roundPoint(p: Point): Point {
   return { x: round2(p.x), y: round2(p.y) }
 }
 
-/** Bounds of an ink drawing's points. */
 export function inkBounds(paths: Point[][]): Box {
   return boundsOf(paths.flat())
 }

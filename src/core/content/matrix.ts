@@ -50,7 +50,6 @@ export function pageToUserMatrix(box: PdfBox): Matrix {
   return [1, 0, 0, -1, box.x, box.y + box.height]
 }
 
-/** PDF user space → page space. */
 export function userToPageMatrix(box: PdfBox): Matrix {
   return [1, 0, 0, -1, -box.x, box.y + box.height]
 }

@@ -867,8 +867,6 @@ class CompositeFont implements FontInfo {
   }
 }
 
-// ---------------------------------------------------------------------------------------
-
 /** Font used when a Tf refers to a missing font: Helvetica metrics, Latin-1 text. */
 class MissingFont extends SimpleFont {
   constructor(ctx: PDFContext) {

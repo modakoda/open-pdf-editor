@@ -135,10 +135,7 @@ next time you quit.
   writes the update metadata (`latest.yml`, `latest-mac.yml`, `latest-linux*.yml`) and `.blockmap`
   files next to the installers, and `release.yml` uploads them to the release with the installers.
   Releases must be published (not drafts) and tagged `vX.Y.Z`.
-- **The repository is private**, and electron-updater's GitHub provider only reads public releases
-  (a token must never be shipped in the app). Before end users can update, either publish releases
-  publicly (make the repository public, or point `owner` / `repo` at a public repository that gets
-  the release files), or use a generic update URL: set the repository variable `UPDATE_FEED_URL`
+- To serve updates from your own server instead, set the repository variable `UPDATE_FEED_URL`
   (e.g. `https://downloads.example.com/open-pdf-editor/`). `release.yml` then builds apps that read
   that URL (`scripts/generic-feed-config.mjs`); upload each release's installers, `latest*.yml` and
   `.blockmap` files to it.

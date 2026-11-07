@@ -25,10 +25,7 @@ export function finishTextEdit(id: string): void {
   }
 }
 
-/**
- * Text objects with a background (created by "edit existing text") cover a single original
- * run: grow their width while typing instead of wrapping, up to `maxWidth`.
- */
+/** Text objects with a background grow their width while typing instead of wrapping, up to `maxWidth`. */
 export function grownWidth(obj: TextObject, text: string, maxWidth: number): number | undefined {
   if (!obj.background) return undefined
   const widest = Math.max(0, ...text.split('\n').map((line) => safeMeasure(line, obj)))

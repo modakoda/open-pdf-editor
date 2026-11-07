@@ -321,7 +321,6 @@ class WindowManager {
     this.emitChange()
   }
 
-  /** Close dialog for a window with unsaved changes. */
   private async confirmCloseDirty(ctx: WindowContext, forQuit: boolean): Promise<void> {
     if (ctx.prompting) return
     // A close requested while an earlier "Save" is still unanswered asks again, so a renderer

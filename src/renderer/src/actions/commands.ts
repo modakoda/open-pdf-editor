@@ -71,7 +71,6 @@ export function runNativeTextCommand(action: MenuAction): boolean {
   return true
 }
 
-/** Commands that work without a document. */
 const NO_DOCUMENT_COMMANDS = new Set<MenuAction>(['new', 'open', 'about', 'toggle-sidebar'])
 
 export function runCommand(action: MenuAction, source: CommandSource = 'ui'): void {

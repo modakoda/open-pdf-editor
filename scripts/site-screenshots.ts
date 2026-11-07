@@ -12,7 +12,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'site', 'screenshots')
 const SIZE = { width: 1440, height: 900 }
 
-// ---------------------------------------------------------------------------------------------
 // Sample document: a three-page project proposal
 
 const INK = rgb(0.07, 0.09, 0.15)
@@ -181,7 +180,6 @@ async function makeProposal(): Promise<Uint8Array> {
   return doc.save()
 }
 
-// ---------------------------------------------------------------------------------------------
 // Capture
 
 const byTestId = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`)

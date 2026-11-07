@@ -12,8 +12,8 @@ directories:
   output: release
   buildResources: build
 
-# Everything the app needs is bundled into out/ by electron-vite (renderer dependencies are
-# bundled by Vite; main/preload only use electron and Node built-ins).
+# Everything the app needs is bundled into out/ by electron-vite, including the main process's
+# runtime dependencies (see electron.vite.config.ts), so no node_modules ship.
 files:
   - out/main/**
   - out/preload/**
@@ -28,9 +28,8 @@ npmRebuild: false
 
 # In-app updates (electron-updater, src/main/updates). electron-builder writes the update
 # metadata (latest*.yml, *.blockmap) next to the installers, and this feed into the app as
-# resources/app-update.yml. The GitHub provider reads public releases only: while the repository
-# is private, end users need public releases (e.g. another, public repository) or a generic feed:
-# scripts/generic-feed-config.mjs writes a copy of this file for one (release.yml uses it when the
+# resources/app-update.yml. For a generic feed instead of GitHub Releases,
+# scripts/generic-feed-config.mjs writes a copy of this file (release.yml uses it when the
 # UPDATE_FEED_URL repository variable is set); upload the release files there.
 publish:
   provider: github

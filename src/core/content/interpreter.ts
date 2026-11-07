@@ -586,8 +586,6 @@ export class Interpreter {
     return cfg.baseOff ? !cfg.on.has(o) : cfg.off.has(o)
   }
 
-  // ---------------------------------------------------------------------------------------
-
   private toPagePoint(p: Point): Point {
     return apply(this.toPage, p.x, p.y)
   }
@@ -1585,7 +1583,6 @@ function pageToUser(box: PdfBox): Matrix {
   return [1, 0, 0, -1, box.x, box.y + box.height]
 }
 
-/** Run the interpreter over parsed page operations. */
 export function interpret(
   ctx: PDFContext,
   data: Uint8Array,

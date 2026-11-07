@@ -1,4 +1,4 @@
-// Writes every fixture from pdfs.ts to tests/fixtures/generated/. Run: node tests/fixtures/generate.ts
+// Writes every fixture (pdfs.ts and FILE_FIXTURES) to tests/fixtures/generated/. Run: node tests/fixtures/generate.ts
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -229,8 +229,6 @@ function emit(ops: Op[], data: Uint8Array, plan: Map<number, Replacement>): Uint
   return w.toBytes()
 }
 
-// ---------------------------------------------------------------------------------------
-
 function nameArg(op: Op, i: number): string | undefined {
   const a = op.args[i]
   return a instanceof PdfName ? a.name : undefined

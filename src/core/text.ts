@@ -35,7 +35,7 @@ export * from './fontFiles'
 
 export type FontStyleKey = `${FontFamily}-${'regular' | 'bold' | 'italic' | 'bolditalic'}`
 
-/** TrueType font bytes for the Unicode fallback fonts (resources/fonts/*.ttf). */
+/** TrueType font bytes of the bundled Unicode fonts (resources/fonts/*.ttf). */
 export type FontAssets = Partial<Record<FontStyleKey, Uint8Array>>
 
 type NamedFontKey = `named:${string}`
@@ -90,7 +90,7 @@ const WIDTH_CACHE_LIMIT = 4000
 const CHOICE_CACHE_LIMIT = 2000
 let preferredHanLanguage: HanLanguage = 'zh-Hans'
 
-/** Register Unicode fallback fonts. Call once at startup (renderer) or in test setup. */
+/** Register the bundled Unicode fonts. Call once at startup (renderer) or in test setup. */
 export function registerFonts(assets: FontAssets): void {
   for (const [key, bytes] of Object.entries(assets) as [FontStyleKey, Uint8Array | undefined][]) {
     if (!bytes) continue
@@ -224,7 +224,6 @@ export interface TextLayout {
   lines: LaidOutLine[]
   /** Total height of the text block in points (lines.length * fontSize * lineHeight). */
   height: number
-  /** Width of the longest line. */
   maxLineWidth: number
   /** Whether the embedded Unicode font is used (true) or a standard PDF font (false). */
   unicode: boolean

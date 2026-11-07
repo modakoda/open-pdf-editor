@@ -153,7 +153,6 @@ export async function recognizePages(
   return outcome
 }
 
-/** Open the Recognize text dialog. */
 export async function openOcrDialog(options: { scope?: OcrScope; skipPagesWithText?: boolean } = {}): Promise<void> {
   if (!editor().doc) return
   await openDialog({ kind: 'ocr', scope: options.scope, skipPagesWithText: options.skipPagesWithText })

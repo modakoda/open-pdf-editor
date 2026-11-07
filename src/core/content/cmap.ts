@@ -71,7 +71,6 @@ export class CMap {
     this.table = null
   }
 
-  /** Read one character code at `pos`. */
   readCode(bytes: Uint8Array, pos: number): { code: number; len: number } {
     if (!this.codespaces.length) {
       const len = Math.min(2, bytes.length - pos)

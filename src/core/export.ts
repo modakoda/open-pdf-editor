@@ -59,7 +59,6 @@ export type ExportWarningCode = 'pdfa-claim-removed' | 'image-skipped' | 'redact
 export interface ExportWarning {
   code: ExportWarningCode
   message: string
-  /** Object the warning is about, if any. */
   objectId?: string
 }
 
@@ -832,9 +831,9 @@ function copyPageAlone(dst: PDFDocument, src: PDFDocument, pageIndex: number): P
 
 /**
  * One-page PDF for displaying a page whose existing content changed (see pageNeedsPreview):
- * the source page with content edits and annotation edits applied and drawings of restored
- * objects removed. Not included: EditObjects, form widgets changes, watermark, page numbers
- * (the UI draws those itself). Keeps the page's own /Rotate and boxes.
+ * the source page with content edits, annotation edits, field deletions and widget moves
+ * applied and drawings of restored objects removed. Not included: EditObjects, form values,
+ * watermark, page numbers (the UI draws those itself). Keeps the page's own /Rotate and boxes.
  */
 export async function renderPagePreview(doc: EditorDocument, pageId: string): Promise<Uint8Array> {
   const { entry, source, pageIndex } = sourcePageOf(doc, pageId)

@@ -1,5 +1,5 @@
 /**
- * Left sidebar with two tabs:
+ * Left sidebar with three tabs:
  * - Pages: thumbnails with click / shift-click / ctrl(cmd)-click selection, drag & drop
  *   reordering (and dropping PDF files to insert their pages), a context menu with page
  *   operations, and keyboard navigation (arrows, Delete).

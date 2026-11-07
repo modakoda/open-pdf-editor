@@ -38,7 +38,6 @@ import { useEditor, type EditorState } from '@renderer/state/store'
 export type FieldKind = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'optionlist' | 'signature' | 'button' | 'unknown'
 
 export interface FieldEntry {
-  /** Unique row key. */
   key: string
   /** 'existing' = a field of a source file, 'new' = FieldObject(s) added in the editor. */
   origin: 'existing' | 'new'
@@ -246,7 +245,7 @@ type SharedValidator = (
   self: { kind: 'field'; sourceId: string; originalName: string } | { kind: 'object'; id: string }
 ) => string | null
 
-/** The editing layer's validateFieldName() once it is exported (same rules everywhere). */
+/** The editing layer's validateFieldName(), if it is exported (same rules everywhere). */
 function sharedValidator(): SharedValidator | null {
   try {
     const fn = (editing as unknown as Record<string, unknown>).validateFieldName

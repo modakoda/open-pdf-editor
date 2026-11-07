@@ -186,7 +186,6 @@ export interface DesktopApi {
    */
   onSaveBeforeClose(callback: () => void): () => void
   // In-app updates (optional: the browser build and older shells lack them).
-  /** Current update state. */
   getUpdateState?(): Promise<UpdateState>
   /** Check for updates now (like Help > Check for Updates…). */
   checkForUpdates?(): void

@@ -3,7 +3,6 @@ import { useDialogs } from '@renderer/state/dialogs'
 import { useFind } from '@renderer/state/find'
 import type { EditorDocument } from '@core'
 
-/** Reset all renderer stores to their initial state. */
 export function resetStores(): void {
   useDialogs.getState().current?.resolve(null)
   useDialogs.setState({ current: null })

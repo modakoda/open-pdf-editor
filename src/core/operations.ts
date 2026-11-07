@@ -422,7 +422,8 @@ export function getEffectiveFormFields(doc: EditorDocument, sourceId: string): E
 
 /**
  * True when the page must be displayed from renderPagePreview() instead of its source page:
- * it has content or annotation edits, or hides drawings of restored objects.
+ * it has content or annotation edits, hides drawings of restored objects, or has deleted or
+ * moved form widgets.
  */
 export function pageNeedsPreview(doc: EditorDocument, pageId: string): boolean {
   if (doc.contentEdits?.[pageId]?.length || doc.annotationEdits?.[pageId]?.length) return true

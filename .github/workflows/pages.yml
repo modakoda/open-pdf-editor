@@ -2,7 +2,7 @@ name: Website
 
 # Publishes the landing page in site/ to GitHub Pages. One-time setup: Settings › Pages › Build and
 # deployment › Source: "GitHub Actions". The download buttons read the latest release from the
-# GitHub API, so they link straight to the installers once releases are public.
+# GitHub API, so they link straight to the installers.
 
 on:
   push:

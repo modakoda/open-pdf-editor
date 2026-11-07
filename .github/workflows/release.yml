@@ -14,9 +14,9 @@ name: Release
 # Without them, macOS builds are ad-hoc signed and Windows builds are unsigned.
 #
 # In-app updates: the release also gets the update metadata (latest*.yml) and blockmaps. Apps read
-# them from this repository's GitHub Releases, which only works for public releases. Set the
-# repository variable UPDATE_FEED_URL to build apps that read a generic feed instead (upload the
-# release files there). Unsigned macOS builds cannot update themselves; they link to the release.
+# them from this repository's GitHub Releases. Set the repository variable UPDATE_FEED_URL to build
+# apps that read a generic feed instead (upload the release files there). Unsigned macOS builds
+# cannot update themselves; they link to the release.
 
 on:
   push:

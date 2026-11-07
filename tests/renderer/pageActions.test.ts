@@ -102,7 +102,7 @@ describe('page operations', () => {
     movePagesToInsertionIndex(['p4'], 4)
     expect(core.movePages).toHaveBeenLastCalledWith(expect.anything(), ['p4'], 3)
     expect(pageIds()).toEqual(['p1', 'p2', 'p3', 'p4'])
-    // Drag p1 + p3 between p3 and p4 (insertion index 3): two pages remain before it (p2... and p1/p3 excluded).
+    // Drag p1 + p3 between p3 and p4 (insertion index 3): only p2 stays before them, so target index 1.
     movePagesToInsertionIndex(['p3', 'p1'], 3)
     expect(core.movePages).toHaveBeenLastCalledWith(expect.anything(), ['p1', 'p3'], 1)
     expect(pageIds()).toEqual(['p2', 'p1', 'p3', 'p4'])

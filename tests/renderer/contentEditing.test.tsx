@@ -189,8 +189,6 @@ describe('page previews', () => {
   })
 })
 
-// ---------------------------------------------------------------------------------------------
-
 function field(name: string, type: FormFieldInfo['type'], pageIndex: number, y: number, value: FormFieldInfo['value']): FormFieldInfo {
   return { name, type, value, readOnly: false, widgets: [{ pageIndex, box: { x: 50, y, width: 100, height: 20 } }] }
 }

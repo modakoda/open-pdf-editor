@@ -8,7 +8,6 @@ import { create } from 'zustand'
 export interface EditingState {
   /** Text object currently edited with the inline textarea. */
   editingTextId: string | null
-  /** Note object whose popover is open. */
   openNoteId: string | null
   signatureOpen: boolean
   /** Incremented to abort any in-progress pointer gesture (Escape). */
